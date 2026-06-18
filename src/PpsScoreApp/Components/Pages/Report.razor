@@ -1,0 +1,205 @@
+@page "/report"
+@rendermode InteractiveServer
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ReportService Reports
+@inject ExportBundleService Bundle
+@inject IJSRuntime JS
+
+<PageTitle>Отчёты</PageTitle>
+
+<h1>Формирование отчёта</h1>
+
+<div class="toolbar">
+    <div class="field">
+        <label>Учебный год</label>
+        <select class="control" @bind="academicYear">
+            @foreach (var y in years)
+            {
+                <option value="@y">@y</option>
+            }
+        </select>
+    </div>
+    <div class="field">
+        <label>Семестр</label>
+        <select class="control" @bind="semester">
+            @foreach (var s in Periods.Semesters)
+            {
+                <option value="@s">@s</option>
+            }
+        </select>
+    </div>
+    <div class="field grow"></div>
+    <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn primary" disabled="@(SelectedIds.Count == 0)" @onclick="Generate">
+            Сформировать (@SelectedIds.Count)
+        </button>
+    </div>
+</div>
+
+<div class="select-panel">
+    <div class="select-head">
+        <strong>Выберите преподавателей</strong>
+        <div>
+            <button class="btn small" @onclick="SelectAll">Выбрать всех</button>
+            <button class="btn small" @onclick="ClearAll">Снять выбор</button>
+        </div>
+    </div>
+
+    @foreach (var d in departments)
+    {
+        var deptTeachers = teachers.Where(t => t.DepartmentId == d.Id).ToList();
+        if (deptTeachers.Count == 0) continue;
+        <div class="dept-block">
+            <label class="dept-line">
+                <input type="checkbox"
+                       checked="@deptTeachers.All(t => selected.Contains(t.Id))"
+                       @onchange="e => ToggleDept(d.Id, (bool)e.Value!)" />
+                <strong>@d.Name</strong>
+                <span class="muted">(@deptTeachers.Count)</span>
+            </label>
+            <div class="teacher-chips">
+                @foreach (var t in deptTeachers)
+                {
+                    <label class="chip">
+                        <input type="checkbox"
+                               checked="@selected.Contains(t.Id)"
+                               @onchange="e => ToggleTeacher(t.Id, (bool)e.Value!)" />
+                        @t.FullName
+                    </label>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (report != null)
+{
+    <div class="report-head">
+        <h2>Отчёт: @report.PeriodTitle</h2>
+        <div class="export-actions">
+            <button class="btn primary" @onclick="ExportBundle" disabled="@busy">
+                @(busy ? "Готовлю…" : "⤓ Скачать пакет (Excel + пояснения .zip)")
+            </button>
+        </div>
+    </div>
+
+    @foreach (var t in report.Teachers)
+    {
+        <div class="report-teacher">
+            <h3>@t.TeacherName <span class="muted">— кафедра «@t.DepartmentName»</span></h3>
+            <table class="grid">
+                <thead>
+                    <tr>
+                        <th style="width:70px">№</th>
+                        <th>Вид работы</th>
+                        <th>Пояснение</th>
+                        <th style="width:80px">Баллы</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in t.Sections)
+                    {
+                        <tr class="section-row"><td colspan="4">@s.Section.FullTitle()</td></tr>
+                        @foreach (var line in s.Lines)
+                        {
+                            <tr>
+                                <td>@line.Number</td>
+                                <td>@line.Title @(string.IsNullOrEmpty(line.Detail) ? "" : $"({line.Detail})")</td>
+                                <td class="comment">@line.Comment</td>
+                                <td class="num">@line.Points.ToString("0.##")</td>
+                            </tr>
+                        }
+                        <tr class="subtotal-row">
+                            <td colspan="3" class="num">
+                                @(s.LimitApplied
+                                    ? $"Итого по разделу (лимит 50; до лимита {s.RawSum:0.##}):"
+                                    : "Итого по разделу:")
+                            </td>
+                            <td class="num">@s.CappedSum.ToString("0.##")</td>
+                        </tr>
+                    }
+                    <tr class="grand-row">
+                        <td colspan="3" class="num">ИТОГО (лимит 100, не менее 0):</td>
+                        <td class="num">@t.Total.ToString("0.##")</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="signature">
+                Зав. кафедрой «@(t.DepartmentShort ?? t.DepartmentName)» ___________________ @t.HeadName
+                <span class="stamp">М.П.</span>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "year")] public string? QYear { get; set; }
+    [SupplyParameterFromQuery(Name = "sem")] public int? QSem { get; set; }
+    [SupplyParameterFromQuery(Name = "dept")] public int? QDept { get; set; }
+
+    private List<Department> departments = new();
+    private List<Teacher> teachers = new();
+    private readonly HashSet<int> selected = new();
+
+    private List<string> years = Periods.List();
+    private string academicYear = Periods.CurrentAcademicYear();
+    private int semester = 2;
+
+    private ReportResult? report;
+    private bool busy;
+
+    private List<int> SelectedIds => selected.ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        departments = await db.Departments.OrderBy(d => d.Name).ToListAsync();
+        teachers = await db.Teachers.OrderBy(t => t.FullName).ToListAsync();
+
+        if (!string.IsNullOrEmpty(QYear) && years.Contains(QYear)) academicYear = QYear;
+        if (QSem is 1 or 2) semester = QSem.Value;
+        if (QDept is > 0)
+            foreach (var t in teachers.Where(t => t.DepartmentId == QDept))
+                selected.Add(t.Id);
+    }
+
+    private void ToggleTeacher(int id, bool on)
+    {
+        if (on) selected.Add(id); else selected.Remove(id);
+    }
+
+    private void ToggleDept(int deptId, bool on)
+    {
+        foreach (var t in teachers.Where(t => t.DepartmentId == deptId))
+            if (on) selected.Add(t.Id); else selected.Remove(t.Id);
+    }
+
+    private void SelectAll() { foreach (var t in teachers) selected.Add(t.Id); }
+    private void ClearAll() => selected.Clear();
+
+    private async Task Generate()
+    {
+        report = await Reports.BuildAsync(new ReportRequest
+        {
+            AcademicYear = academicYear,
+            Semester = semester,
+            TeacherIds = SelectedIds
+        });
+    }
+
+    private async Task ExportBundle()
+    {
+        if (report == null) await Generate();
+        busy = true;
+        try
+        {
+            var bytes = Bundle.Build(report!);
+            await JS.InvokeVoidAsync("downloadFile",
+                $"Отчёт_ИП_{academicYear.Replace('/', '-')}_сем{semester}.zip",
+                "application/zip",
+                Convert.ToBase64String(bytes));
+        }
+        finally { busy = false; }
+    }
+}
