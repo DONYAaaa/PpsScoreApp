@@ -5,9 +5,9 @@ using PpsScoreApp.Models;
 namespace PpsScoreApp.Services;
 
 /// <summary>
-/// Формирует Excel в виде исходной формы ИП: матрица «виды работ × преподаватели».
-/// Альбомная A4, повторяющаяся шапка, подпись зав. кафедрой внизу.
-/// Отдельный лист на каждую кафедру.
+/// Формирует Excel в виде исходной формы ИП (альбомная, многостраничная):
+/// матрица «виды работ × преподаватели», подытоги по разделам, «Итого», подпись зав. кафедрой.
+/// Отдельный лист на каждую кафедру. Шапка повторяется на каждой печатной странице.
 /// </summary>
 public class ExcelExportService
 {
@@ -47,54 +47,59 @@ public class ExcelExportService
         int r = 1;
 
         // заголовок (только на 1-й странице)
-        ws.Cell(r, 1).Value = $"Индивидуальные показатели работы преподавателя за {report.Semester} семестр {report.AcademicYear} учебного года";
-        Merge(ws, r, 1, r, lastCol, bold: true, size: 13, center: true);
+        ws.Cell(r, 1).Value = $"Индивидуальные показатели работы преподавателей за {report.Semester} семестр {report.AcademicYear} учебного года";
+        MergeStyled(ws, r, 1, r, lastCol, bold: true, size: 13, center: true, wrap: true);
+        ws.Row(r).Height = 34;
         r++;
-
         ws.Cell(r, 1).Value = $"Кафедра «{deptName}»";
-        Merge(ws, r, 1, r, lastCol, bold: true, center: true);
+        MergeStyled(ws, r, 1, r, lastCol, bold: false, center: true, wrap: true);
+        ws.Row(r).Height = 30;
         r += 2;
 
-        // ---- двухстрочная шапка ----
-        int captionRow = r;
-        int namesRow = r + 1;
+        // двухстрочная шапка: №/Виды работ/Баллы (на 2 строки) + «Фамилия И.О...» над именами
+        int headTop = r;
+        int headBottom = r + 1;
 
-        ws.Cell(captionRow, 1).Value = "№";
-        ws.Range(captionRow, 1, namesRow, 1).Merge();
-        ws.Cell(captionRow, 2).Value = "Виды работ";
-        ws.Range(captionRow, 2, namesRow, 2).Merge();
-        ws.Cell(captionRow, 3).Value = "Баллы";
-        ws.Range(captionRow, 3, namesRow, 3).Merge();
+        ws.Cell(headTop, 1).Value = "№";
+        ws.Range(headTop, 1, headBottom, 1).Merge();
+        ws.Cell(headTop, 2).Value = "Виды работ";
+        ws.Range(headTop, 2, headBottom, 2).Merge();
+        ws.Cell(headTop, 3).Value = "Баллы";
+        ws.Range(headTop, 3, headBottom, 3).Merge();
 
-        ws.Cell(captionRow, FirstTeacherCol).Value = "Фамилия И.О. штатного преподавателя";
-        ws.Range(captionRow, FirstTeacherCol, captionRow, lastCol).Merge();
-        for (int i = 0; i < teachers.Count; i++)
-            ws.Cell(namesRow, FirstTeacherCol + i).Value = teachers[i].TeacherName;
+        if (teachers.Count > 0)
+        {
+            ws.Cell(headTop, FirstTeacherCol).Value = "Фамилия И.О. штатного преподавателя";
+            ws.Range(headTop, FirstTeacherCol, headTop, lastCol).Merge();
+            for (int i = 0; i < teachers.Count; i++)
+            {
+                var cell = ws.Cell(headBottom, FirstTeacherCol + i);
+                cell.Value = teachers[i].TeacherName;
+                cell.Style.Alignment.TextRotation = 90;   // имена вертикально
+            }
+            ws.Row(headBottom).Height = 130;
+        }
 
-        var hr = ws.Range(captionRow, 1, namesRow, lastCol);
-        hr.Style.Font.Bold = true;
-        hr.Style.Fill.BackgroundColor = XLColor.FromHtml("#E8EEF7");
+        var hr = ws.Range(headTop, 1, headBottom, lastCol);
         hr.Style.Alignment.WrapText = true;
         hr.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         hr.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         hr.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         hr.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
-        r = namesRow + 1;
+        r = headBottom + 1;
 
-        // ---- разделы и виды работ ----
+        // разделы и виды работ
         foreach (WorkSection sec in Enum.GetValues<WorkSection>())
         {
             var types = report.Catalog.Where(w => w.Section == sec).OrderBy(w => w.DisplayOrder).ToList();
             if (types.Count == 0) continue;
 
-            // строка-раздел с подытогами по столбцам
             ws.Cell(r, 1).Value = sec.FullTitle();
             ws.Range(r, 1, r, 3).Merge();
             for (int i = 0; i < teachers.Count; i++)
                 ws.Cell(r, FirstTeacherCol + i).Value = teachers[i].SectionCappedFor(sec);
             var sr = ws.Range(r, 1, r, lastCol);
             sr.Style.Font.Bold = true;
-            sr.Style.Fill.BackgroundColor = XLColor.FromHtml("#F2F2F2");
             sr.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(r, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
             sr.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
@@ -108,80 +113,89 @@ public class ExcelExportService
                 ws.Cell(r, 2).Value = w.Title;
                 ws.Cell(r, 2).Style.Alignment.WrapText = true;
                 ws.Cell(r, 3).Value = RefPoints(w);
+                ws.Cell(r, 3).Style.Alignment.WrapText = true;
                 ws.Cell(r, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 for (int i = 0; i < teachers.Count; i++)
                 {
                     if (teachers[i].PointsByWorkType.TryGetValue(w.Id, out var pts) && pts != 0)
-                        ws.Cell(r, FirstTeacherCol + i).Value = pts;
-                    ws.Cell(r, FirstTeacherCol + i).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    {
+                        var c = ws.Cell(r, FirstTeacherCol + i);
+                        c.Value = pts;
+                        c.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                    }
                 }
-                var row = ws.Range(r, 1, r, lastCol);
-                row.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
-                row.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
-                row.Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
+                var rr = ws.Range(r, 1, r, lastCol);
+                rr.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                rr.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+                rr.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
                 r++;
             }
         }
 
-        // ---- строка ИТОГО ----
+        // строка ИТОГО
         ws.Cell(r, 1).Value = "Итого";
         ws.Range(r, 1, r, 3).Merge();
         for (int i = 0; i < teachers.Count; i++)
             ws.Cell(r, FirstTeacherCol + i).Value = teachers[i].Total;
         var ir = ws.Range(r, 1, r, lastCol);
         ir.Style.Font.Bold = true;
-        ir.Style.Fill.BackgroundColor = XLColor.FromHtml("#FFF2CC");
         ir.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ws.Cell(r, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
         ir.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         ir.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+        int totalRow = r;
         r += 2;
 
-        // ---- подпись зав. кафедрой ----
+        // подпись зав. кафедрой
         ws.Cell(r, 1).Value = $"Зав. кафедрой «{deptShort ?? deptName}» ____________________ {headName}";
         ws.Range(r, 1, r, lastCol).Merge();
         ws.Cell(r, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+        int lastRow = r;
 
-        // ---- ширины колонок ----
+        // ширины
         ws.Column(1).Width = 5;
-        ws.Column(2).Width = 55;
-        ws.Column(3).Width = 9;
+        ws.Column(2).Width = 62;
+        ws.Column(3).Width = 12;
         for (int i = 0; i < teachers.Count; i++)
-            ws.Column(FirstTeacherCol + i).Width = 11;
+            ws.Column(FirstTeacherCol + i).Width = 5;
 
-        // ---- печать: альбомная A4, по ширине 1 страница, повтор шапки ----
+        // на экране — закрепление шапки и первых столбцов
+        ws.SheetView.FreezeRows(headBottom);
+        ws.SheetView.FreezeColumns(3);
+
+        // печать: альбом, A4, вписать по ширине в 1 страницу, повтор шапки, подпись внизу
         var ps = ws.PageSetup;
         ps.PageOrientation = XLPageOrientation.Landscape;
         ps.PaperSize = XLPaperSize.A4Paper;
-        ps.PagesWide = 1;
-        ps.PagesTall = 0;            // по высоте — сколько нужно
-        ps.Margins.Top = 0.5;
-        ps.Margins.Bottom = 0.5;
-        ps.Margins.Left = 0.4;
-        ps.Margins.Right = 0.4;
+        ps.FitToPages(1, 0);                       // 1 страница в ширину, по высоте — сколько нужно
+        ps.SetRowsToRepeatAtTop(headTop, headBottom);
         ps.CenterHorizontally = true;
-        ps.SetRowsToRepeatAtTop(captionRow, namesRow);
-
-        ws.SheetView.FreezeRows(namesRow);
-        ws.SheetView.FreezeColumns(3);
+        ps.Margins.Top = 0.5; ps.Margins.Bottom = 0.5;
+        ps.Margins.Left = 0.4; ps.Margins.Right = 0.4;
+        ps.Margins.Header = 0.2; ps.Margins.Footer = 0.2;
+        ps.Header.Right.AddText("Стр. ");
+        ps.Header.Right.AddText(XLHFPredefinedText.PageNumber);
+        ps.PrintAreas.Add(1, 1, lastRow, lastCol);
     }
 
-    private static void Merge(IXLWorksheet ws, int r1, int c1, int r2, int c2,
-        bool bold = false, int size = 0, bool center = false)
+    private static void MergeStyled(IXLWorksheet ws, int r1, int c1, int r2, int c2,
+        bool bold = false, int size = 11, bool center = false, bool wrap = false)
     {
         var rng = ws.Range(r1, c1, r2, c2);
         rng.Merge();
-        if (bold) rng.Style.Font.Bold = true;
-        if (size > 0) rng.Style.Font.FontSize = size;
+        rng.Style.Font.Bold = bold;
+        rng.Style.Font.FontSize = size;
         if (center) rng.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        if (wrap) rng.Style.Alignment.WrapText = true;
+        rng.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
     }
 
     private static string RefPoints(WorkType w) => w.InputKind switch
     {
         ScoreInputKind.Fixed => w.FixedPoints?.ToString("0.##") ?? "",
         ScoreInputKind.Choice => string.Join("/", w.Options.OrderBy(o => o.DisplayOrder).Select(o => o.Points.ToString("0.##"))),
-        ScoreInputKind.Quantity => $"{w.UnitPoints?.ToString("0.##")} за 1 {w.UnitName}",
-        ScoreInputKind.Manual => "по решению зав. каф.",
+        ScoreInputKind.Quantity => $"{w.UnitPoints?.ToString("0.##")} балл за 1 практику",
+        ScoreInputKind.Manual => "",
         _ => ""
     };
 
