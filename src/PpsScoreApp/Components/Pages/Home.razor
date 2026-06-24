@@ -25,6 +25,10 @@
                 }
             </select>
             <button class="btn" @onclick="() => showAddTeacher = true">+ Преподаватель</button>
+            <button class="btn danger" disabled="@(selectedTeacherId == 0)"
+                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">
+                Удалить
+            </button>
         </div>
     </div>
 
@@ -87,9 +91,35 @@
     </div>
 }
 
-@if (selectedTeacherId == 0)
+@if (showDeleteTeacher)
 {
-    <p class="hint">Выберите преподавателя, чтобы увидеть и добавить показатели за выбранный период.</p>
+    <div class="modal-backdrop" @onclick="() => showDeleteTeacher = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>Удалить преподавателя?</h3>
+            <p>
+                Вы действительно хотите удалить преподавателя
+                <strong>@deleteTeacherName</strong>@(string.IsNullOrEmpty(deleteTeacherDept) ? "" : $" (кафедра «{deleteTeacherDept}»)")?
+            </p>
+            @if (deleteEntryCount > 0)
+            {
+                <div class="hint-box">
+                    Вместе с преподавателем будут безвозвратно удалены все внесённые им работы
+                    (@deleteEntryCount шт.) за все периоды и прикреплённые к ним файлы.
+                </div>
+            }
+            <p class="hint">Действие необратимо.</p>
+            @if (!string.IsNullOrEmpty(deleteError))
+            {
+                <div class="error">@deleteError</div>
+            }
+            <div class="modal-actions">
+                <button class="btn" @onclick="() => showDeleteTeacher = false">Отмена</button>
+                <button class="btn danger" disabled="@deleting" @onclick="ConfirmDeleteTeacher">
+                    @(deleting ? "Удаляю…" : "Удалить")
+                </button>
+            </div>
+        </div>
+    </div>
 }
 else
 {
@@ -253,7 +283,8 @@ else
                     <InputFile OnChange="OnFileSelected" />
                     @if (!string.IsNullOrEmpty(draftExistingFileName))
                     {
-                        <div class="hint">Текущий файл: @draftExistingFileName
+                        <div class="hint">
+                            Текущий файл: @draftExistingFileName
                             <button class="btn small" @onclick="RemoveDraftFile">убрать</button>
                         </div>
                     }
@@ -309,6 +340,14 @@ else
     private string? draftExistingStoredName;
     private bool draftRemoveFile;
     private string? entryError;
+
+    // удаление преподавателя
+    private bool showDeleteTeacher;
+    private bool deleting;
+    private string? deleteTeacherName;
+    private string? deleteTeacherDept;
+    private int deleteEntryCount;
+    private string? deleteError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -369,7 +408,59 @@ else
         await LoadEntries();
     }
 
-    // ---- entry modal ----
+    // ---- удаление преподавателя ----
+    private async Task OpenDeleteTeacher()
+    {
+        if (selectedTeacherId == 0) return;
+        deleteError = null;
+        var t = teachers.FirstOrDefault(x => x.Id == selectedTeacherId);
+        deleteTeacherName = t?.FullName;
+        deleteTeacherDept = departments.FirstOrDefault(d => d.Id == t?.DepartmentId)?.Name;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        deleteEntryCount = await db.WorkEntries.CountAsync(e => e.TeacherId == selectedTeacherId);
+
+        showDeleteTeacher = true;
+    }
+
+    private async Task ConfirmDeleteTeacher()
+    {
+        if (selectedTeacherId == 0) return;
+        deleting = true;
+        deleteError = null;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            // сперва удаляем прикреплённые файлы с диска
+            var stored = await db.WorkEntries
+                .Where(e => e.TeacherId == selectedTeacherId && e.StoredFileName != null)
+                .Select(e => e.StoredFileName!)
+                .ToListAsync();
+            foreach (var f in stored) Storage.Delete(f);
+
+            // удаляем преподавателя (записи удалятся каскадом)
+            var teacher = await db.Teachers.FindAsync(selectedTeacherId);
+            if (teacher != null)
+            {
+                db.Teachers.Remove(teacher);
+                await db.SaveChangesAsync();
+            }
+
+            teachers.RemoveAll(x => x.Id == selectedTeacherId);
+            selectedTeacherId = 0;
+            entries = new();
+            showDeleteTeacher = false;
+        }
+        catch (Exception ex)
+        {
+            deleteError = "Не удалось удалить: " + ex.Message;
+        }
+        finally
+        {
+            deleting = false;
+        }
+    }
     private void OpenAddEntry()
     {
         editingId = 0;
