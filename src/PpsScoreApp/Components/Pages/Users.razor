@@ -1,0 +1,171 @@
+@page "/users"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin")]
+@inject UserService UserSvc
+@inject AuditLogger Audit
+
+<PageTitle>Пользователи</PageTitle>
+
+<h1>Пользователи</h1>
+
+<div class="toolbar">
+    <div class="field grow">
+        <label>&nbsp;</label>
+        <span class="hint">Регистрация новых пользователей доступна только администратору.</span>
+    </div>
+    <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn primary" @onclick="OpenCreate">+ Пользователь</button>
+    </div>
+</div>
+
+<table class="grid">
+    <thead>
+        <tr>
+            <th>Логин</th>
+            <th>Имя</th>
+            <th style="width:120px">Роль</th>
+            <th style="width:120px">Статус</th>
+            <th style="width:110px"></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var u in users)
+        {
+            <tr>
+                <td>@u.Login</td>
+                <td>@u.DisplayName</td>
+                <td>@(u.IsAdmin ? "Администратор" : "Пользователь")</td>
+                <td>@(u.IsActive ? "активен" : "отключён")</td>
+                <td class="actions">
+                    <button class="btn small danger" @onclick="() => OpenDelete(u)">Удалить</button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@if (showCreate)
+{
+    <div class="modal-backdrop" @onclick="() => showCreate = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>Новый пользователь</h3>
+            <div class="field">
+                <label>Логин</label>
+                <input class="control" @bind="newLogin" autocomplete="off" />
+            </div>
+            <div class="field">
+                <label>Имя (необязательно)</label>
+                <input class="control" @bind="newName" />
+            </div>
+            <div class="field">
+                <label>Пароль</label>
+                <input class="control" type="text" @bind="newPassword" autocomplete="off" />
+            </div>
+            <label class="dept-line">
+                <input type="checkbox" @bind="newIsAdmin" /> Администратор
+            </label>
+            @if (!string.IsNullOrEmpty(createError))
+            {
+                <div class="error">@createError</div>
+            }
+            <div class="modal-actions">
+                <button class="btn" @onclick="() => showCreate = false">Отмена</button>
+                <button class="btn primary" @onclick="CreateUser">Создать</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDelete)
+{
+    <div class="modal-backdrop" @onclick="() => showDelete = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>Удалить пользователя?</h3>
+            <p>Удалить учётную запись <strong>@deleteTarget?.Login</strong>?</p>
+            <p class="hint">Действие необратимо.</p>
+            @if (!string.IsNullOrEmpty(deleteError))
+            {
+                <div class="error">@deleteError</div>
+            }
+            <div class="modal-actions">
+                <button class="btn" @onclick="() => showDelete = false">Отмена</button>
+                <button class="btn danger" @onclick="ConfirmDelete">Удалить</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<AppUser> users = new();
+
+    private bool showCreate;
+    private string newLogin = "";
+    private string? newName;
+    private string newPassword = "";
+    private bool newIsAdmin;
+    private string? createError;
+
+    private bool showDelete;
+    private AppUser? deleteTarget;
+    private string? deleteError;
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task Reload() => users = await UserSvc.ListAsync();
+
+    private async Task<string> CurrentUser()
+    {
+        if (AuthState == null) return "—";
+        var s = await AuthState;
+        return s.User.Identity?.Name ?? "—";
+    }
+
+    private void OpenCreate()
+    {
+        newLogin = ""; newName = null; newPassword = ""; newIsAdmin = false; createError = null;
+        showCreate = true;
+    }
+
+    private async Task CreateUser()
+    {
+        createError = null;
+        var (ok, error) = await UserSvc.CreateAsync(newLogin, newName, newPassword, newIsAdmin);
+        if (!ok) { createError = error; return; }
+        Audit.Log(await CurrentUser(), $"Создан пользователь «{newLogin.Trim()}»{(newIsAdmin ? " (администратор)" : "")}");
+        showCreate = false;
+        await Reload();
+    }
+
+    private void OpenDelete(AppUser u)
+    {
+        deleteTarget = u;
+        deleteError = null;
+        showDelete = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (deleteTarget == null) return;
+        deleteError = null;
+
+        var me = await CurrentUser();
+        if (string.Equals(deleteTarget.Login, me, StringComparison.OrdinalIgnoreCase))
+        {
+            deleteError = "Нельзя удалить самого себя.";
+            return;
+        }
+        if (deleteTarget.IsAdmin && await UserSvc.CountAdminsAsync() <= 1)
+        {
+            deleteError = "Нельзя удалить последнего администратора.";
+            return;
+        }
+
+        await UserSvc.DeleteAsync(deleteTarget.Id);
+        Audit.Log(me, $"Удалён пользователь «{deleteTarget.Login}»");
+        showDelete = false;
+        await Reload();
+    }
+}

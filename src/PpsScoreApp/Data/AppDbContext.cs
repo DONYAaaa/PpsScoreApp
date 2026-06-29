@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<WorkType> WorkTypes => Set<WorkType>();
     public DbSet<ScoreOption> ScoreOptions => Set<ScoreOption>();
     public DbSet<WorkEntry> WorkEntries => Set<WorkEntry>();
+    public DbSet<AppUser> Users => Set<AppUser>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -55,5 +56,6 @@ public class AppDbContext : DbContext
 
         b.Entity<Department>().HasIndex(d => d.Name).IsUnique();
         b.Entity<WorkEntry>().HasIndex(e => new { e.TeacherId, e.AcademicYear, e.Semester });
+        b.Entity<AppUser>().HasIndex(u => u.Login).IsUnique();
     }
 }

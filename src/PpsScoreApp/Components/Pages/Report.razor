@@ -1,5 +1,6 @@
 @page "/report"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ReportService Reports
 @inject ExportBundleService Bundle

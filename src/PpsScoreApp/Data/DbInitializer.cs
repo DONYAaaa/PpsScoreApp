@@ -29,5 +29,19 @@ public static class DbInitializer
             db.WorkTypes.AddRange(SeedData.WorkTypes());
             await db.SaveChangesAsync();
         }
+
+        // Учётная запись администратора по умолчанию (логин admin)
+        if (!await db.Users.AnyAsync(u => u.IsAdmin))
+        {
+            db.Users.Add(new Domain.AppUser
+            {
+                Login = "admin",
+                DisplayName = "Администратор",
+                PasswordHash = Services.PasswordHasher.Hash("88863795"),
+                IsAdmin = true,
+                IsActive = true
+            });
+            await db.SaveChangesAsync();
+        }
     }
 }

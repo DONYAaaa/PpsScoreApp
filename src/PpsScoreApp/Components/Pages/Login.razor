@@ -1,0 +1,33 @@
+@page "/login"
+@attribute [AllowAnonymous]
+
+<PageTitle>Вход</PageTitle>
+
+<div class="login-card">
+    <h1>Вход в систему</h1>
+    <p class="hint">Учёт баллов ППС</p>
+
+    <form method="post" action="/auth/login" data-enhance="false">
+        <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+        <div class="field">
+            <label>Логин</label>
+            <input class="control" name="login" autocomplete="username" required autofocus />
+        </div>
+        <div class="field">
+            <label>Пароль</label>
+            <input class="control" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        @if (HasError)
+        {
+            <div class="error">Неверный логин или пароль.</div>
+        }
+        <button class="btn primary big" type="submit">Войти</button>
+    </form>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private bool HasError => !string.IsNullOrEmpty(Error);
+}

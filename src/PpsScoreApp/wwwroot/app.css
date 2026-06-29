@@ -281,3 +281,31 @@ textarea.control { min-width: 320px; resize: vertical; }
     color: var(--muted);
     font-size: 13px;
 }
+
+/* ---- header user box ---- */
+.app-header .user-box {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.app-header .user-box .user-name { color: #dbe4f5; font-weight: 500; }
+.app-header .user-box form { margin: 0; }
+
+/* ---- login ---- */
+.login-card {
+    max-width: 360px;
+    margin: 8vh auto 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 28px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.login-card h1 { margin: 0; font-size: 20px; }
+.login-card form { display: flex; flex-direction: column; gap: 14px; }
+.login-card .control { width: 100%; min-width: 0; }
+.login-card .btn.big { width: 100%; }

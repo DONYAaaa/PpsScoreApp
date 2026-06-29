@@ -1,7 +1,9 @@
 @page "/"
 @rendermode InteractiveServer
+@attribute [Authorize]
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject FileStorageService Storage
+@inject AuditLogger Audit
 @inject NavigationManager Nav
 
 <PageTitle>Ввод показателей</PageTitle>
@@ -26,9 +28,7 @@
             </select>
             <button class="btn" @onclick="() => showAddTeacher = true">+ Преподаватель</button>
             <button class="btn danger" disabled="@(selectedTeacherId == 0)"
-                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">
-                Удалить
-            </button>
+                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">Удалить</button>
         </div>
     </div>
 
@@ -283,8 +283,7 @@ else
                     <InputFile OnChange="OnFileSelected" />
                     @if (!string.IsNullOrEmpty(draftExistingFileName))
                     {
-                        <div class="hint">
-                            Текущий файл: @draftExistingFileName
+                        <div class="hint">Текущий файл: @draftExistingFileName
                             <button class="btn small" @onclick="RemoveDraftFile">убрать</button>
                         </div>
                     }
@@ -309,6 +308,15 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private async Task<string> CurrentUser()
+    {
+        if (AuthState == null) return "—";
+        var s = await AuthState;
+        return s.User.Identity?.Name ?? "—";
+    }
+
     private List<Department> departments = new();
     private List<Teacher> teachers = new();
     private List<WorkType> workTypes = new();
@@ -398,6 +406,7 @@ else
         var t = new Teacher { FullName = newTeacherName.Trim(), DepartmentId = newTeacherDeptId };
         db.Teachers.Add(t);
         await db.SaveChangesAsync();
+        Audit.Log(await CurrentUser(), $"Добавлен преподаватель «{t.FullName}»");
 
         teachers.Add(t);
         teachers = teachers.OrderBy(x => x.FullName).ToList();
@@ -451,6 +460,7 @@ else
             selectedTeacherId = 0;
             entries = new();
             showDeleteTeacher = false;
+            Audit.Log(await CurrentUser(), $"Удалён преподаватель «{deleteTeacherName}» (записей: {deleteEntryCount})");
         }
         catch (Exception ex)
         {
@@ -593,6 +603,10 @@ else
         }
 
         await db.SaveChangesAsync();
+        Audit.Log(await CurrentUser(),
+            $"{(editingId == 0 ? "Добавлена" : "Изменена")} работа п. {draftWorkType.FullNumber} " +
+            $"({entry.Points:0.##} б.) преподавателю «{teachers.FirstOrDefault(x => x.Id == selectedTeacherId)?.FullName}» " +
+            $"за {academicYear}, {semester} сем.");
         showEntry = false;
         await LoadEntries();
     }
@@ -606,6 +620,9 @@ else
             if (!string.IsNullOrEmpty(db_e.StoredFileName)) Storage.Delete(db_e.StoredFileName);
             db.WorkEntries.Remove(db_e);
             await db.SaveChangesAsync();
+            Audit.Log(await CurrentUser(),
+                $"Удалена работа п. {e.WorkType?.FullNumber} ({e.Points:0.##} б.) у преподавателя " +
+                $"«{teachers.FirstOrDefault(x => x.Id == selectedTeacherId)?.FullName}» за {academicYear}, {semester} сем.");
         }
         await LoadEntries();
     }

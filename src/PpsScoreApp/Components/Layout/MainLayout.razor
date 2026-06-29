@@ -3,10 +3,23 @@
 <div class="app-shell">
     <header class="app-header">
         <div class="brand">СГУПС · Учёт баллов ППС</div>
-        <nav>
-            <NavLink href="" Match="NavLinkMatch.All">Ввод показателей</NavLink>
-            <NavLink href="report">Отчёты</NavLink>
-        </nav>
+        <AuthorizeView>
+            <Authorized>
+                <nav>
+                    <NavLink href="" Match="NavLinkMatch.All">Ввод показателей</NavLink>
+                    <NavLink href="report">Отчёты</NavLink>
+                    <AuthorizeView Roles="Admin" Context="adm">
+                        <NavLink href="users">Пользователи</NavLink>
+                    </AuthorizeView>
+                </nav>
+                <div class="user-box">
+                    <span class="user-name">@context.User.Identity?.Name</span>
+                    <form method="post" action="/auth/logout" data-enhance="false">
+                        <button class="btn small" type="submit">Выйти</button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
     </header>
     <main class="app-main">
         @Body
