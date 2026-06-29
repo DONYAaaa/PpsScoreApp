@@ -28,7 +28,9 @@
             </select>
             <button class="btn" @onclick="() => showAddTeacher = true">+ Преподаватель</button>
             <button class="btn danger" disabled="@(selectedTeacherId == 0)"
-                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">Удалить</button>
+                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">
+                Удалить
+            </button>
         </div>
     </div>
 
@@ -50,13 +52,6 @@
                 <option value="@s">@s</option>
             }
         </select>
-    </div>
-
-    <div class="field grow"></div>
-
-    <div class="field">
-        <label>&nbsp;</label>
-        <button class="btn primary" disabled="@(selectedTeacherId == 0)" @onclick="OpenAddEntry">+ Добавить работу</button>
     </div>
 </div>
 
@@ -121,6 +116,11 @@
         </div>
     </div>
 }
+
+@if (selectedTeacherId == 0)
+{
+    <p class="hint">Выберите преподавателя, чтобы заполнить показатели за выбранный период.</p>
+}
 else
 {
     <div class="totals-bar">
@@ -139,171 +139,91 @@ else
         </div>
     </div>
 
-    @if (entries.Count == 0)
-    {
-        <p class="hint">За этот период работ ещё не внесено.</p>
-    }
-    else
-    {
-        <table class="grid">
-            <thead>
-                <tr>
-                    <th style="width:70px">№</th>
-                    <th>Вид работы</th>
-                    <th style="width:80px">Баллы</th>
-                    <th>Пояснение</th>
-                    <th style="width:140px">Файл</th>
-                    <th style="width:130px"></th>
+    <table class="grid sheet">
+        <thead>
+            <tr>
+                <th style="width:54px">№</th>
+                <th>Вид работы</th>
+                <th style="width:90px">Баллы</th>
+                <th style="width:210px">Заполнение</th>
+                <th style="width:70px">Балл</th>
+                <th style="width:260px">Комментарий</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var sec in Enum.GetValues<WorkSection>())
+            {
+                var secRows = rows.Where(r => r.Wt.Section == sec).ToList();
+                if (secRows.Count == 0) { continue; }
+                var raw = SectionRaw(sec);
+                var capped = ScoringRules.CapSection(raw);
+                <tr class="section-row">
+                    <td colspan="4">@sec.FullTitle()</td>
+                    <td class="num">@capped.ToString("0.##")@(capped != raw ? $" / {raw:0.##}" : "")</td>
+                    <td></td>
                 </tr>
-            </thead>
-            <tbody>
-                @foreach (var grp in entries.GroupBy(e => e.WorkType!.Section).OrderBy(g => g.Key))
+                @foreach (var row in secRows)
                 {
-                    <tr class="section-row">
-                        <td colspan="6">@grp.Key.FullTitle()</td>
+                    <tr>
+                        <td>@row.Wt.Number</td>
+                        <td>
+                            @row.Wt.Title
+                            @if (!string.IsNullOrEmpty(row.Wt.Hint))
+                            {
+                                <div class="hint small">@row.Wt.Hint</div>
+                            }
+                            @if (row.EntryId is int fid && row.HasFile)
+                            {
+                                <div class="hint small">📎 <a href="/files/@fid" target="_blank">@row.OriginalFileName</a></div>
+                            }
+                        </td>
+                        <td class="num">@RefPoints(row.Wt)</td>
+                        <td>
+                            @switch (row.Wt.InputKind)
+                            {
+                                case ScoreInputKind.Fixed:
+                                    <label class="cell-check">
+                                        <input type="checkbox" @bind="row.Included" /> учтено
+                                    </label>
+                                    break;
+                                case ScoreInputKind.Choice:
+                                    <select class="control" value="@(row.OptionId?.ToString() ?? "")"
+                                            @onchange="e => OnOption(row, e)">
+                                        <option value="">— нет —</option>
+                                        @foreach (var op in row.Wt.Options.OrderBy(o => o.DisplayOrder))
+                                        {
+                                            <option value="@op.Id">@op.Label — @op.Points.ToString("0.##") б.</option>
+                                        }
+                                    </select>
+                                    break;
+                                case ScoreInputKind.Manual:
+                                    <input type="number" step="0.5" class="control narrow" @bind="row.Manual" />
+                                    break;
+                                case ScoreInputKind.Quantity:
+                                    <div class="row">
+                                        <input type="number" min="0" step="1" class="control narrow" @bind="row.Quantity" />
+                                        <span class="hint small">× @row.Wt.UnitPoints?.ToString("0.##") @row.Wt.UnitName</span>
+                                    </div>
+                                    break;
+                            }
+                        </td>
+                        <td class="num">@RowPoints(row).ToString("0.##")</td>
+                        <td><input class="control comment-input" @bind="row.Comment" /></td>
                     </tr>
-                    @foreach (var e in grp.OrderBy(e => e.WorkType!.DisplayOrder))
-                    {
-                        <tr>
-                            <td>@e.WorkType!.FullNumber</td>
-                            <td>
-                                @e.WorkType.Title
-                                @if (e.ScoreOption != null)
-                                {
-                                    <span class="detail"> — @e.ScoreOption.Label</span>
-                                }
-                                else if (e.Quantity.HasValue)
-                                {
-                                    <span class="detail"> — @e.Quantity × @e.WorkType.UnitName</span>
-                                }
-                            </td>
-                            <td class="num">@e.Points.ToString("0.##")</td>
-                            <td class="comment">@e.Comment</td>
-                            <td>
-                                @if (e.HasFile)
-                                {
-                                    <a href="/files/@e.Id" target="_blank">@e.OriginalFileName</a>
-                                }
-                            </td>
-                            <td class="actions">
-                                <button class="btn small" @onclick="() => OpenEditEntry(e)">Изм.</button>
-                                <button class="btn small danger" @onclick="() => DeleteEntry(e)">Удал.</button>
-                            </td>
-                        </tr>
-                    }
                 }
-            </tbody>
-        </table>
-    }
-
-    <div class="footer-actions">
-        <button class="btn primary big" @onclick="GoToReport">Сформировать отчёт →</button>
-    </div>
-}
-
-@if (showEntry)
-{
-    <div class="modal-backdrop" @onclick="CloseEntry">
-        <div class="modal wide" @onclick:stopPropagation>
-            <h3>@(editingId == 0 ? "Добавить работу" : "Редактировать работу")</h3>
-
-            <div class="field">
-                <label>Раздел</label>
-                <select class="control" value="@draftSection" @onchange="OnDraftSectionChanged">
-                    @foreach (var sec in Enum.GetValues<WorkSection>())
-                    {
-                        <option value="@((int)sec)">@sec.FullTitle()</option>
-                    }
-                </select>
-            </div>
-
-            <div class="field">
-                <label>Вид работы</label>
-                <select class="control" value="@draftWorkTypeId" @onchange="OnDraftWorkTypeChanged">
-                    <option value="0">— выберите —</option>
-                    @foreach (var w in workTypes.Where(w => (int)w.Section == draftSection).OrderBy(w => w.DisplayOrder))
-                    {
-                        <option value="@w.Id">@w.FullNumber. @w.Title</option>
-                    }
-                </select>
-            </div>
-
-            @if (draftWorkType != null)
-            {
-                @if (!string.IsNullOrEmpty(draftWorkType.Hint))
-                {
-                    <div class="hint-box">@draftWorkType.Hint</div>
-                }
-
-                @switch (draftWorkType.InputKind)
-                {
-                    case ScoreInputKind.Fixed:
-                        <div class="field">
-                            <label>Баллы</label>
-                            <div class="readonly-points">@draftWorkType.FixedPoints?.ToString("0.##")</div>
-                        </div>
-                        break;
-
-                    case ScoreInputKind.Choice:
-                        <div class="field">
-                            <label>Вариант</label>
-                            <select class="control" value="@draftOptionId" @onchange="OnDraftOptionChanged">
-                                <option value="0">— выберите вариант —</option>
-                                @foreach (var op in draftWorkType.Options.OrderBy(o => o.DisplayOrder))
-                                {
-                                    <option value="@op.Id">@op.Label — @op.Points.ToString("0.##") б.</option>
-                                }
-                            </select>
-                        </div>
-                        break;
-
-                    case ScoreInputKind.Manual:
-                        <div class="field">
-                            <label>Баллы (устанавливаются вручную)</label>
-                            <input type="number" step="0.5" class="control" @bind="draftManualPoints" />
-                        </div>
-                        break;
-
-                    case ScoreInputKind.Quantity:
-                        <div class="field">
-                            <label>Количество (@draftWorkType.UnitName), по @draftWorkType.UnitPoints?.ToString("0.##") б. за единицу</label>
-                            <input type="number" step="1" min="0" class="control" @bind="draftQuantity" />
-                            <div class="hint">Итого: @ComputeDraftPoints().ToString("0.##") б.</div>
-                        </div>
-                        break;
-                }
-
-                <div class="field">
-                    <label>Комментарий (необязательно)</label>
-                    <textarea class="control" rows="2" @bind="draftComment"></textarea>
-                </div>
-
-                <div class="field">
-                    <label>Файл-подтверждение (необязательно)</label>
-                    <InputFile OnChange="OnFileSelected" />
-                    @if (!string.IsNullOrEmpty(draftExistingFileName))
-                    {
-                        <div class="hint">Текущий файл: @draftExistingFileName
-                            <button class="btn small" @onclick="RemoveDraftFile">убрать</button>
-                        </div>
-                    }
-                    @if (draftFile != null)
-                    {
-                        <div class="hint">Новый файл: @draftFile.Name</div>
-                    }
-                </div>
             }
+        </tbody>
+    </table>
 
-            @if (!string.IsNullOrEmpty(entryError))
-            {
-                <div class="error">@entryError</div>
-            }
-
-            <div class="modal-actions">
-                <button class="btn" @onclick="CloseEntry">Отмена</button>
-                <button class="btn primary" @onclick="SaveEntry">Сохранить</button>
-            </div>
-        </div>
+    <div class="footer-actions sheet-actions">
+        @if (!string.IsNullOrEmpty(saveMessage))
+        {
+            <span class="save-msg">@saveMessage</span>
+        }
+        <button class="btn" @onclick="GoToReport">Перейти к отчётам →</button>
+        <button class="btn primary big" disabled="@saving" @onclick="Save">
+            @(saving ? "Сохраняю…" : "Сохранить")
+        </button>
     </div>
 }
 
@@ -320,34 +240,21 @@ else
     private List<Department> departments = new();
     private List<Teacher> teachers = new();
     private List<WorkType> workTypes = new();
-    private List<WorkEntry> entries = new();
+    private List<Row> rows = new();
 
     private int selectedTeacherId;
     private List<string> years = Periods.List();
     private string academicYear = Periods.CurrentAcademicYear();
     private int semester = 2;
 
-    // add teacher
+    private bool saving;
+    private string? saveMessage;
+
+    // добавление преподавателя
     private bool showAddTeacher;
     private string newTeacherName = "";
     private int newTeacherDeptId;
     private string? teacherError;
-
-    // entry modal
-    private bool showEntry;
-    private int editingId;
-    private int draftSection = 1;
-    private int draftWorkTypeId;
-    private WorkType? draftWorkType;
-    private int draftOptionId;
-    private decimal draftManualPoints;
-    private int draftQuantity;
-    private string? draftComment;
-    private IBrowserFile? draftFile;
-    private string? draftExistingFileName;
-    private string? draftExistingStoredName;
-    private bool draftRemoveFile;
-    private string? entryError;
 
     // удаление преподавателя
     private bool showDeleteTeacher;
@@ -357,6 +264,21 @@ else
     private int deleteEntryCount;
     private string? deleteError;
 
+    /// <summary>Состояние одной строки таблицы (один вид работы).</summary>
+    private class Row
+    {
+        public WorkType Wt = default!;
+        public int? EntryId;                 // основная запись, если есть
+        public List<int> ExtraEntryIds = new(); // прежние дубликаты по этому виду — удаляются при сохранении
+        public bool Included;                // Fixed
+        public int? OptionId;                // Choice
+        public decimal Manual;               // Manual
+        public int Quantity;                 // Quantity
+        public string? Comment;
+        public bool HasFile;
+        public string? OriginalFileName;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
@@ -365,37 +287,189 @@ else
         workTypes = await db.WorkTypes.Include(w => w.Options).ToListAsync();
     }
 
-    private async Task LoadEntries()
+    private async Task LoadRows()
     {
-        if (selectedTeacherId == 0) { entries = new(); return; }
+        saveMessage = null;
+        rows = new();
+        if (selectedTeacherId == 0) return;
+
         await using var db = await DbFactory.CreateDbContextAsync();
-        entries = await db.WorkEntries
-            .Include(e => e.WorkType).ThenInclude(w => w!.Options)
-            .Include(e => e.ScoreOption)
+        var entries = await db.WorkEntries
             .Where(e => e.TeacherId == selectedTeacherId
                         && e.AcademicYear == academicYear
                         && e.Semester == semester)
             .ToListAsync();
+
+        foreach (var wt in workTypes.OrderBy(w => w.Section).ThenBy(w => w.DisplayOrder))
+        {
+            var es = entries.Where(e => e.WorkTypeId == wt.Id).OrderBy(e => e.Id).ToList();
+            var row = new Row { Wt = wt };
+
+            if (es.Count > 0)
+            {
+                var primary = es[0];
+                row.EntryId = primary.Id;
+                row.ExtraEntryIds = es.Skip(1).Select(e => e.Id).ToList();
+                row.Comment = primary.Comment;
+                row.HasFile = !string.IsNullOrEmpty(primary.StoredFileName);
+                row.OriginalFileName = primary.OriginalFileName;
+
+                switch (wt.InputKind)
+                {
+                    case ScoreInputKind.Fixed: row.Included = true; break;
+                    case ScoreInputKind.Choice: row.OptionId = primary.ScoreOptionId; break;
+                    case ScoreInputKind.Manual: row.Manual = primary.Points; break;
+                    case ScoreInputKind.Quantity: row.Quantity = primary.Quantity ?? 0; break;
+                }
+            }
+
+            rows.Add(row);
+        }
     }
 
     private async Task OnTeacherChanged(ChangeEventArgs e)
     {
         selectedTeacherId = int.Parse(e.Value?.ToString() ?? "0");
-        await LoadEntries();
+        await LoadRows();
     }
 
     private async Task OnPeriodChanged(ChangeEventArgs e)
     {
         academicYear = e.Value?.ToString() ?? academicYear;
-        await LoadEntries();
+        await LoadRows();
     }
 
     private async Task OnSemesterChanged(ChangeEventArgs e)
     {
         semester = int.Parse(e.Value?.ToString() ?? "2");
-        await LoadEntries();
+        await LoadRows();
     }
 
+    private void OnOption(Row row, ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        row.OptionId = string.IsNullOrEmpty(v) ? null : int.Parse(v);
+    }
+
+    // ---- расчёт ----
+    private decimal RowPoints(Row r) => r.Wt.InputKind switch
+    {
+        ScoreInputKind.Fixed => r.Included ? (r.Wt.FixedPoints ?? 0) : 0,
+        ScoreInputKind.Choice => r.OptionId.HasValue
+            ? (r.Wt.Options.FirstOrDefault(o => o.Id == r.OptionId)?.Points ?? 0) : 0,
+        ScoreInputKind.Manual => r.Manual,
+        ScoreInputKind.Quantity => r.Quantity > 0 ? (r.Wt.UnitPoints ?? 0) * r.Quantity : 0,
+        _ => 0
+    };
+
+    private bool RowActive(Row r) => r.Wt.InputKind switch
+    {
+        ScoreInputKind.Fixed => r.Included,
+        ScoreInputKind.Choice => r.OptionId.HasValue,
+        ScoreInputKind.Manual => r.Manual != 0,
+        ScoreInputKind.Quantity => r.Quantity > 0,
+        _ => false
+    };
+
+    private decimal SectionRaw(WorkSection sec) =>
+        rows.Where(r => r.Wt.Section == sec).Sum(RowPoints);
+
+    private decimal GrandTotal()
+    {
+        decimal sum = 0;
+        foreach (var sec in Enum.GetValues<WorkSection>())
+            sum += ScoringRules.CapSection(SectionRaw(sec));
+        return ScoringRules.CapTotal(sum);
+    }
+
+    private static string RefPoints(WorkType w) => w.InputKind switch
+    {
+        ScoreInputKind.Fixed => w.FixedPoints?.ToString("0.##") ?? "",
+        ScoreInputKind.Choice => string.Join("/", w.Options.OrderBy(o => o.DisplayOrder).Select(o => o.Points.ToString("0.##"))),
+        ScoreInputKind.Quantity => $"{w.UnitPoints?.ToString("0.##")} балл за 1 практику",
+        ScoreInputKind.Manual => "",
+        _ => ""
+    };
+
+    // ---- сохранение всей таблицы ----
+    private async Task Save()
+    {
+        if (selectedTeacherId == 0) return;
+        saving = true;
+        saveMessage = null;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            foreach (var row in rows)
+            {
+                if (RowActive(row))
+                {
+                    WorkEntry entry;
+                    if (row.EntryId is int id)
+                    {
+                        entry = await db.WorkEntries.FirstAsync(x => x.Id == id);
+                    }
+                    else
+                    {
+                        entry = new WorkEntry
+                        {
+                            TeacherId = selectedTeacherId,
+                            AcademicYear = academicYear,
+                            Semester = semester,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        db.WorkEntries.Add(entry);
+                    }
+
+                    entry.WorkTypeId = row.Wt.Id;
+                    entry.ScoreOptionId = row.Wt.InputKind == ScoreInputKind.Choice ? row.OptionId : null;
+                    entry.Quantity = row.Wt.InputKind == ScoreInputKind.Quantity ? row.Quantity : null;
+                    entry.Points = RowPoints(row);
+                    entry.Comment = string.IsNullOrWhiteSpace(row.Comment) ? null : row.Comment!.Trim();
+                    // файл-вложение (если было) намеренно не трогаем
+
+                    await RemoveEntries(db, row.ExtraEntryIds);
+                }
+                else
+                {
+                    var ids = new List<int>();
+                    if (row.EntryId is int pid) ids.Add(pid);
+                    ids.AddRange(row.ExtraEntryIds);
+                    await RemoveEntries(db, ids);
+                }
+            }
+
+            await db.SaveChangesAsync();
+            Audit.Log(await CurrentUser(),
+                $"Сохранены показатели преподавателя «{TeacherName()}» за {academicYear}, {semester} сем. (итог {GrandTotal():0.##})");
+            saveMessage = "Сохранено.";
+            await LoadRows();
+        }
+        catch (Exception ex)
+        {
+            saveMessage = "Ошибка сохранения: " + ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task RemoveEntries(AppDbContext db, IEnumerable<int> ids)
+    {
+        foreach (var did in ids)
+        {
+            var d = await db.WorkEntries.FindAsync(did);
+            if (d == null) continue;
+            if (!string.IsNullOrEmpty(d.StoredFileName)) Storage.Delete(d.StoredFileName);
+            db.WorkEntries.Remove(d);
+        }
+    }
+
+    private string TeacherName() => teachers.FirstOrDefault(t => t.Id == selectedTeacherId)?.FullName ?? "";
+
+    // ---- преподаватели ----
     private async Task AddTeacher()
     {
         teacherError = null;
@@ -414,10 +488,9 @@ else
         newTeacherName = "";
         newTeacherDeptId = 0;
         showAddTeacher = false;
-        await LoadEntries();
+        await LoadRows();
     }
 
-    // ---- удаление преподавателя ----
     private async Task OpenDeleteTeacher()
     {
         if (selectedTeacherId == 0) return;
@@ -441,14 +514,12 @@ else
         {
             await using var db = await DbFactory.CreateDbContextAsync();
 
-            // сперва удаляем прикреплённые файлы с диска
             var stored = await db.WorkEntries
                 .Where(e => e.TeacherId == selectedTeacherId && e.StoredFileName != null)
                 .Select(e => e.StoredFileName!)
                 .ToListAsync();
             foreach (var f in stored) Storage.Delete(f);
 
-            // удаляем преподавателя (записи удалятся каскадом)
             var teacher = await db.Teachers.FindAsync(selectedTeacherId);
             if (teacher != null)
             {
@@ -458,7 +529,7 @@ else
 
             teachers.RemoveAll(x => x.Id == selectedTeacherId);
             selectedTeacherId = 0;
-            entries = new();
+            rows = new();
             showDeleteTeacher = false;
             Audit.Log(await CurrentUser(), $"Удалён преподаватель «{deleteTeacherName}» (записей: {deleteEntryCount})");
         }
@@ -471,179 +542,10 @@ else
             deleting = false;
         }
     }
-    private void OpenAddEntry()
-    {
-        editingId = 0;
-        draftSection = 1;
-        draftWorkTypeId = 0;
-        draftWorkType = null;
-        draftOptionId = 0;
-        draftManualPoints = 0;
-        draftQuantity = 1;
-        draftComment = null;
-        draftFile = null;
-        draftExistingFileName = null;
-        draftExistingStoredName = null;
-        draftRemoveFile = false;
-        entryError = null;
-        showEntry = true;
-    }
-
-    private void OpenEditEntry(WorkEntry e)
-    {
-        editingId = e.Id;
-        draftSection = (int)e.WorkType!.Section;
-        draftWorkTypeId = e.WorkTypeId;
-        draftWorkType = workTypes.FirstOrDefault(w => w.Id == e.WorkTypeId);
-        draftOptionId = e.ScoreOptionId ?? 0;
-        draftManualPoints = e.WorkType.InputKind == ScoreInputKind.Manual ? e.Points : 0;
-        draftQuantity = e.Quantity ?? 1;
-        draftComment = e.Comment;
-        draftFile = null;
-        draftExistingFileName = e.OriginalFileName;
-        draftExistingStoredName = e.StoredFileName;
-        draftRemoveFile = false;
-        entryError = null;
-        showEntry = true;
-    }
-
-    private void CloseEntry() => showEntry = false;
-
-    private void OnDraftSectionChanged(ChangeEventArgs e)
-    {
-        draftSection = int.Parse(e.Value?.ToString() ?? "1");
-        draftWorkTypeId = 0;
-        draftWorkType = null;
-        draftOptionId = 0;
-    }
-
-    private void OnDraftWorkTypeChanged(ChangeEventArgs e)
-    {
-        draftWorkTypeId = int.Parse(e.Value?.ToString() ?? "0");
-        draftWorkType = workTypes.FirstOrDefault(w => w.Id == draftWorkTypeId);
-        draftOptionId = 0;
-        if (draftWorkType?.InputKind == ScoreInputKind.Quantity && draftQuantity < 1) draftQuantity = 1;
-    }
-
-    private void OnDraftOptionChanged(ChangeEventArgs e) =>
-        draftOptionId = int.Parse(e.Value?.ToString() ?? "0");
-
-    private void OnFileSelected(InputFileChangeEventArgs e)
-    {
-        draftFile = e.File;
-        draftRemoveFile = false;
-    }
-
-    private void RemoveDraftFile()
-    {
-        draftExistingFileName = null;
-        draftRemoveFile = true;
-    }
-
-    private decimal ComputeDraftPoints()
-    {
-        if (draftWorkType == null) return 0;
-        return draftWorkType.InputKind switch
-        {
-            ScoreInputKind.Fixed => draftWorkType.FixedPoints ?? 0,
-            ScoreInputKind.Choice => draftWorkType.Options.FirstOrDefault(o => o.Id == draftOptionId)?.Points ?? 0,
-            ScoreInputKind.Manual => draftManualPoints,
-            ScoreInputKind.Quantity => (draftWorkType.UnitPoints ?? 0) * draftQuantity,
-            _ => 0
-        };
-    }
-
-    private async Task SaveEntry()
-    {
-        entryError = null;
-        if (draftWorkType == null) { entryError = "Выберите вид работы."; return; }
-        if (draftWorkType.InputKind == ScoreInputKind.Choice && draftOptionId == 0)
-        { entryError = "Выберите вариант баллов."; return; }
-        if (draftWorkType.InputKind == ScoreInputKind.Quantity && draftQuantity < 1)
-        { entryError = "Укажите количество."; return; }
-
-        await using var db = await DbFactory.CreateDbContextAsync();
-
-        WorkEntry entry;
-        if (editingId == 0)
-        {
-            entry = new WorkEntry
-            {
-                TeacherId = selectedTeacherId,
-                AcademicYear = academicYear,
-                Semester = semester,
-                CreatedAt = DateTime.UtcNow
-            };
-            db.WorkEntries.Add(entry);
-        }
-        else
-        {
-            entry = await db.WorkEntries.FirstAsync(e => e.Id == editingId);
-        }
-
-        entry.WorkTypeId = draftWorkType.Id;
-        entry.ScoreOptionId = draftWorkType.InputKind == ScoreInputKind.Choice ? draftOptionId : null;
-        entry.Quantity = draftWorkType.InputKind == ScoreInputKind.Quantity ? draftQuantity : null;
-        entry.Points = ComputeDraftPoints();
-        entry.Comment = string.IsNullOrWhiteSpace(draftComment) ? null : draftComment.Trim();
-
-        // файл
-        if (draftRemoveFile && !string.IsNullOrEmpty(draftExistingStoredName))
-        {
-            Storage.Delete(draftExistingStoredName);
-            entry.StoredFileName = null;
-            entry.OriginalFileName = null;
-        }
-        if (draftFile != null)
-        {
-            if (!string.IsNullOrEmpty(entry.StoredFileName)) Storage.Delete(entry.StoredFileName);
-            await using var stream = draftFile.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-            entry.StoredFileName = await Storage.SaveAsync(stream, draftFile.Name);
-            entry.OriginalFileName = draftFile.Name;
-        }
-
-        await db.SaveChangesAsync();
-        Audit.Log(await CurrentUser(),
-            $"{(editingId == 0 ? "Добавлена" : "Изменена")} работа п. {draftWorkType.FullNumber} " +
-            $"({entry.Points:0.##} б.) преподавателю «{teachers.FirstOrDefault(x => x.Id == selectedTeacherId)?.FullName}» " +
-            $"за {academicYear}, {semester} сем.");
-        showEntry = false;
-        await LoadEntries();
-    }
-
-    private async Task DeleteEntry(WorkEntry e)
-    {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var db_e = await db.WorkEntries.FindAsync(e.Id);
-        if (db_e != null)
-        {
-            if (!string.IsNullOrEmpty(db_e.StoredFileName)) Storage.Delete(db_e.StoredFileName);
-            db.WorkEntries.Remove(db_e);
-            await db.SaveChangesAsync();
-            Audit.Log(await CurrentUser(),
-                $"Удалена работа п. {e.WorkType?.FullNumber} ({e.Points:0.##} б.) у преподавателя " +
-                $"«{teachers.FirstOrDefault(x => x.Id == selectedTeacherId)?.FullName}» за {academicYear}, {semester} сем.");
-        }
-        await LoadEntries();
-    }
-
-    private decimal SectionRaw(WorkSection sec) =>
-        entries.Where(e => e.WorkType!.Section == sec).Sum(e => e.Points);
-
-    private decimal GrandTotal()
-    {
-        decimal sum = 0;
-        foreach (var sec in Enum.GetValues<WorkSection>())
-            sum += ScoringRules.CapSection(SectionRaw(sec));
-        return ScoringRules.CapTotal(sum);
-    }
 
     private void GoToReport()
     {
-        var url = $"report?year={Uri.EscapeDataString(academicYear)}&sem={semester}&dept={SelectedDeptId()}";
-        Nav.NavigateTo(url);
+        var dept = teachers.FirstOrDefault(t => t.Id == selectedTeacherId)?.DepartmentId ?? 0;
+        Nav.NavigateTo($"report?year={Uri.EscapeDataString(academicYear)}&sem={semester}&dept={dept}");
     }
-
-    private int SelectedDeptId() =>
-        teachers.FirstOrDefault(t => t.Id == selectedTeacherId)?.DepartmentId ?? 0;
 }
