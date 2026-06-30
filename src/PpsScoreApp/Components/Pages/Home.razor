@@ -28,9 +28,7 @@
             </select>
             <button class="btn" @onclick="() => showAddTeacher = true">+ Преподаватель</button>
             <button class="btn danger" disabled="@(selectedTeacherId == 0)"
-                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">
-                Удалить
-            </button>
+                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">Удалить</button>
         </div>
     </div>
 
@@ -117,6 +115,19 @@
     </div>
 }
 
+@if (infoText != null)
+{
+    <div class="modal-backdrop" @onclick="() => infoText = null">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@infoTitle</h3>
+            <div class="instr-text">@infoText</div>
+            <div class="modal-actions">
+                <button class="btn primary" @onclick="() => infoText = null">Понятно</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (selectedTeacherId == 0)
 {
     <p class="hint">Выберите преподавателя, чтобы заполнить показатели за выбранный период.</p>
@@ -128,14 +139,34 @@ else
         {
             var raw = SectionRaw(sec);
             var capped = ScoringRules.CapSection(raw);
-            <div class="total-chip @(capped != raw ? "capped" : "")" title="@sec.Title()">
+            var over = capped != raw;
+            <div class="total-chip @(over ? "capped" : "")" title="@sec.Title()">
                 <span class="sec-num">Раздел @((int)sec)</span>
-                <span class="sec-val">@capped.ToString("0.##")@(capped != raw ? $" / {raw:0.##}" : "")</span>
+                <span class="sec-val">
+                    @(over ? $"{raw:0.##} / {capped:0.##}" : capped.ToString("0.##"))
+                    @if (over)
+                    {
+                        <button type="button" class="info-btn"
+                                @onclick="() => ShowSectionLimit(raw, capped)">?</button>
+                    }
+                </span>
             </div>
         }
-        <div class="total-chip grand">
+        @{
+            var rawTotal = RawGrandTotal();
+            var total = ScoringRules.CapTotal(rawTotal);
+            var overTotal = rawTotal != total;
+        }
+        <div class="total-chip grand @(overTotal ? "capped" : "")">
             <span class="sec-num">ИТОГО</span>
-            <span class="sec-val">@GrandTotal().ToString("0.##")</span>
+            <span class="sec-val">
+                @(overTotal ? $"{rawTotal:0.##} / {total:0.##}" : total.ToString("0.##"))
+                @if (overTotal)
+                {
+                    <button type="button" class="info-btn"
+                            @onclick="() => ShowTotalLimit(rawTotal, total)">?</button>
+                }
+            </span>
         </div>
     </div>
 
@@ -147,7 +178,8 @@ else
                 <th style="width:90px">Баллы</th>
                 <th style="width:210px">Заполнение</th>
                 <th style="width:70px">Балл</th>
-                <th style="width:260px">Комментарий</th>
+                <th style="width:230px">Комментарий</th>
+                <th style="width:180px">Файл</th>
             </tr>
         </thead>
         <tbody>
@@ -160,55 +192,50 @@ else
                 <tr class="section-row">
                     <td colspan="4">@sec.FullTitle()</td>
                     <td class="num">@capped.ToString("0.##")@(capped != raw ? $" / {raw:0.##}" : "")</td>
-                    <td></td>
+                    <td colspan="2"></td>
                 </tr>
                 @foreach (var row in secRows)
                 {
                     <tr>
                         <td>@row.Wt.Number</td>
-                        <td>
-                            @row.Wt.Title
-                            @if (!string.IsNullOrEmpty(row.Wt.Hint))
-                            {
-                                <div class="hint small">@row.Wt.Hint</div>
-                            }
-                            @if (row.EntryId is int fid && row.HasFile)
+                        <td class="wt-cell">
+                            <div class="wt-title">
+                                @if (WorkInstructions.For(row.Wt.FullNumber) is string instr)
+                                {
+                                    <button type="button" class="info-btn" title="Как заполнять"
+                                            @onclick="() => OpenInfo(row.Wt, instr)">?</button>
+                                }
+                                <span>@row.Wt.Title</span>
+                            </div>
+                            @if (row.EntryId is int fid && row.HasFile && !row.RemoveFile)
                             {
                                 <div class="hint small">📎 <a href="/files/@fid" target="_blank">@row.OriginalFileName</a></div>
                             }
                         </td>
                         <td class="num">@RefPoints(row.Wt)</td>
                         <td>
-                            @switch (row.Wt.InputKind)
-                            {
-                                case ScoreInputKind.Fixed:
-                                    <label class="cell-check">
-                                        <input type="checkbox" @bind="row.Included" /> учтено
-                                    </label>
-                                    break;
-                                case ScoreInputKind.Choice:
-                                    <select class="control" value="@(row.OptionId?.ToString() ?? "")"
-                                            @onchange="e => OnOption(row, e)">
-                                        <option value="">— нет —</option>
-                                        @foreach (var op in row.Wt.Options.OrderBy(o => o.DisplayOrder))
-                                        {
-                                            <option value="@op.Id">@op.Label — @op.Points.ToString("0.##") б.</option>
-                                        }
-                                    </select>
-                                    break;
-                                case ScoreInputKind.Manual:
-                                    <input type="number" step="0.5" class="control narrow" @bind="row.Manual" />
-                                    break;
-                                case ScoreInputKind.Quantity:
-                                    <div class="row">
-                                        <input type="number" min="0" step="1" class="control narrow" @bind="row.Quantity" />
-                                        <span class="hint small">× @row.Wt.UnitPoints?.ToString("0.##") @row.Wt.UnitName</span>
-                                    </div>
-                                    break;
-                            }
+                            <input type="number" step="0.5" class="control narrow"
+                                   @bind="row.Value" @bind:after="() => AutoSaveRow(row)" />
                         </td>
                         <td class="num">@RowPoints(row).ToString("0.##")</td>
-                        <td><input class="control comment-input" @bind="row.Comment" /></td>
+                        <td>
+                            <input class="control comment-input"
+                                   @bind="row.Comment" @bind:after="() => AutoSaveRow(row)" />
+                        </td>
+                        <td class="file-cell">
+                            @if (row.HasFile && !row.RemoveFile)
+                            {
+                                <button class="btn small danger" @onclick="() => RemoveFileNow(row)">убрать файл</button>
+                            }
+                            else
+                            {
+                                <InputFile OnChange="e => OnFileSelected(row, e)" />
+                                @if (row.NewFile != null)
+                                {
+                                    <div class="hint small">@row.NewFile.Name</div>
+                                }
+                            }
+                        </td>
                     </tr>
                 }
             }
@@ -250,6 +277,29 @@ else
     private bool saving;
     private string? saveMessage;
 
+    // окно-инструкция
+    private string? infoTitle;
+    private string? infoText;
+
+    private void OpenInfo(WorkType wt, string text)
+    {
+        infoTitle = $"п. {wt.FullNumber}. {wt.Title}";
+        infoText = text;
+    }
+
+    private async Task OnFileSelected(Row row, InputFileChangeEventArgs e)
+    {
+        row.NewFile = e.File;
+        row.RemoveFile = false;
+        await AutoSaveRow(row);
+    }
+
+    private async Task RemoveFileNow(Row row)
+    {
+        row.RemoveFile = true;
+        await AutoSaveRow(row);
+    }
+
     // добавление преподавателя
     private bool showAddTeacher;
     private string newTeacherName = "";
@@ -270,13 +320,13 @@ else
         public WorkType Wt = default!;
         public int? EntryId;                 // основная запись, если есть
         public List<int> ExtraEntryIds = new(); // прежние дубликаты по этому виду — удаляются при сохранении
-        public bool Included;                // Fixed
-        public int? OptionId;                // Choice
-        public decimal Manual;               // Manual
-        public int Quantity;                 // Quantity
+        public decimal Value;                // баллы вводятся вручную для всех видов
         public string? Comment;
-        public bool HasFile;
+        public string? StoredFileName;
         public string? OriginalFileName;
+        public bool HasFile;
+        public IBrowserFile? NewFile;        // выбранный для загрузки файл
+        public bool RemoveFile;              // снять текущий файл
     }
 
     protected override async Task OnInitializedAsync()
@@ -311,16 +361,10 @@ else
                 row.EntryId = primary.Id;
                 row.ExtraEntryIds = es.Skip(1).Select(e => e.Id).ToList();
                 row.Comment = primary.Comment;
-                row.HasFile = !string.IsNullOrEmpty(primary.StoredFileName);
+                row.StoredFileName = primary.StoredFileName;
                 row.OriginalFileName = primary.OriginalFileName;
-
-                switch (wt.InputKind)
-                {
-                    case ScoreInputKind.Fixed: row.Included = true; break;
-                    case ScoreInputKind.Choice: row.OptionId = primary.ScoreOptionId; break;
-                    case ScoreInputKind.Manual: row.Manual = primary.Points; break;
-                    case ScoreInputKind.Quantity: row.Quantity = primary.Quantity ?? 0; break;
-                }
+                row.HasFile = !string.IsNullOrEmpty(primary.StoredFileName);
+                row.Value = primary.Points;
             }
 
             rows.Add(row);
@@ -345,41 +389,37 @@ else
         await LoadRows();
     }
 
-    private void OnOption(Row row, ChangeEventArgs e)
-    {
-        var v = e.Value?.ToString();
-        row.OptionId = string.IsNullOrEmpty(v) ? null : int.Parse(v);
-    }
-
     // ---- расчёт ----
-    private decimal RowPoints(Row r) => r.Wt.InputKind switch
-    {
-        ScoreInputKind.Fixed => r.Included ? (r.Wt.FixedPoints ?? 0) : 0,
-        ScoreInputKind.Choice => r.OptionId.HasValue
-            ? (r.Wt.Options.FirstOrDefault(o => o.Id == r.OptionId)?.Points ?? 0) : 0,
-        ScoreInputKind.Manual => r.Manual,
-        ScoreInputKind.Quantity => r.Quantity > 0 ? (r.Wt.UnitPoints ?? 0) * r.Quantity : 0,
-        _ => 0
-    };
+    private decimal RowPoints(Row r) => r.Value;
 
-    private bool RowActive(Row r) => r.Wt.InputKind switch
-    {
-        ScoreInputKind.Fixed => r.Included,
-        ScoreInputKind.Choice => r.OptionId.HasValue,
-        ScoreInputKind.Manual => r.Manual != 0,
-        ScoreInputKind.Quantity => r.Quantity > 0,
-        _ => false
-    };
+    private bool RowActive(Row r) => r.Value != 0;
 
     private decimal SectionRaw(WorkSection sec) =>
         rows.Where(r => r.Wt.Section == sec).Sum(RowPoints);
 
-    private decimal GrandTotal()
+    private decimal RawGrandTotal()
     {
         decimal sum = 0;
         foreach (var sec in Enum.GetValues<WorkSection>())
             sum += ScoringRules.CapSection(SectionRaw(sec));
-        return ScoringRules.CapTotal(sum);
+        return sum;
+    }
+
+    private decimal GrandTotal() => ScoringRules.CapTotal(RawGrandTotal());
+
+    private void ShowSectionLimit(decimal raw, decimal capped)
+    {
+        infoTitle = "Лимит раздела";
+        infoText = $"По каждому разделу засчитывается не более {ScoringRules.SectionCap:0.##} баллов.\n" +
+                   $"Набрано: {raw:0.##}, к зачёту: {capped:0.##}.\n" +
+                   $"Превышение ({raw - capped:0.##}) не учитывается.";
+    }
+
+    private void ShowTotalLimit(decimal raw, decimal total)
+    {
+        infoTitle = "Лимит итога";
+        infoText = $"Итоговая сумма ограничена {ScoringRules.TotalCap:0.##} баллами и не может быть меньше {ScoringRules.TotalFloor:0.##}.\n" +
+                   $"Набрано: {raw:0.##}, к зачёту: {total:0.##}.";
     }
 
     private static string RefPoints(WorkType w) => w.InputKind switch
@@ -390,6 +430,96 @@ else
         ScoreInputKind.Manual => "",
         _ => ""
     };
+
+    // ---- автосохранение одной строки (при уходе с поля) ----
+    private async Task AutoSaveRow(Row row)
+    {
+        if (selectedTeacherId == 0) return;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            if (RowActive(row))
+            {
+                WorkEntry entry;
+                if (row.EntryId is int id)
+                {
+                    entry = await db.WorkEntries.FirstAsync(x => x.Id == id);
+                }
+                else
+                {
+                    entry = new WorkEntry
+                    {
+                        TeacherId = selectedTeacherId,
+                        AcademicYear = academicYear,
+                        Semester = semester,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    db.WorkEntries.Add(entry);
+                }
+
+                entry.WorkTypeId = row.Wt.Id;
+                entry.ScoreOptionId = null;
+                entry.Quantity = null;
+                entry.Points = row.Value;
+                entry.Comment = string.IsNullOrWhiteSpace(row.Comment) ? null : row.Comment!.Trim();
+
+                if (row.RemoveFile && !string.IsNullOrEmpty(entry.StoredFileName))
+                {
+                    Storage.Delete(entry.StoredFileName);
+                    entry.StoredFileName = null;
+                    entry.OriginalFileName = null;
+                }
+                if (row.NewFile != null)
+                {
+                    if (!string.IsNullOrEmpty(entry.StoredFileName)) Storage.Delete(entry.StoredFileName);
+                    await using var stream = row.NewFile.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
+                    entry.StoredFileName = await Storage.SaveAsync(stream, row.NewFile.Name);
+                    entry.OriginalFileName = row.NewFile.Name;
+                }
+
+                await RemoveEntries(db, row.ExtraEntryIds);
+                await db.SaveChangesAsync();
+
+                row.EntryId = entry.Id;
+                row.ExtraEntryIds.Clear();
+                row.StoredFileName = entry.StoredFileName;
+                row.OriginalFileName = entry.OriginalFileName;
+                row.HasFile = !string.IsNullOrEmpty(entry.StoredFileName);
+                row.NewFile = null;
+                row.RemoveFile = false;
+
+                Audit.Log(await CurrentUser(),
+                    $"Показатель п. {row.Wt.FullNumber} = {entry.Points:0.##} б. — «{TeacherName()}», {academicYear}, {semester} сем.");
+            }
+            else
+            {
+                var ids = new List<int>();
+                if (row.EntryId is int pid) ids.Add(pid);
+                ids.AddRange(row.ExtraEntryIds);
+                if (ids.Count > 0)
+                {
+                    await RemoveEntries(db, ids);
+                    await db.SaveChangesAsync();
+                    Audit.Log(await CurrentUser(),
+                        $"Очищен показатель п. {row.Wt.FullNumber} — «{TeacherName()}», {academicYear}, {semester} сем.");
+                }
+                row.EntryId = null;
+                row.ExtraEntryIds.Clear();
+                row.StoredFileName = null;
+                row.OriginalFileName = null;
+                row.HasFile = false;
+                row.NewFile = null;
+                row.RemoveFile = false;
+            }
+
+            saveMessage = "Сохранено";
+        }
+        catch (Exception ex)
+        {
+            saveMessage = "Ошибка автосохранения: " + ex.Message;
+        }
+    }
 
     // ---- сохранение всей таблицы ----
     private async Task Save()
@@ -423,11 +553,25 @@ else
                     }
 
                     entry.WorkTypeId = row.Wt.Id;
-                    entry.ScoreOptionId = row.Wt.InputKind == ScoreInputKind.Choice ? row.OptionId : null;
-                    entry.Quantity = row.Wt.InputKind == ScoreInputKind.Quantity ? row.Quantity : null;
-                    entry.Points = RowPoints(row);
+                    entry.ScoreOptionId = null;
+                    entry.Quantity = null;
+                    entry.Points = row.Value;
                     entry.Comment = string.IsNullOrWhiteSpace(row.Comment) ? null : row.Comment!.Trim();
-                    // файл-вложение (если было) намеренно не трогаем
+
+                    // файл-вложение
+                    if (row.RemoveFile && !string.IsNullOrEmpty(entry.StoredFileName))
+                    {
+                        Storage.Delete(entry.StoredFileName);
+                        entry.StoredFileName = null;
+                        entry.OriginalFileName = null;
+                    }
+                    if (row.NewFile != null)
+                    {
+                        if (!string.IsNullOrEmpty(entry.StoredFileName)) Storage.Delete(entry.StoredFileName);
+                        await using var stream = row.NewFile.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
+                        entry.StoredFileName = await Storage.SaveAsync(stream, row.NewFile.Name);
+                        entry.OriginalFileName = row.NewFile.Name;
+                    }
 
                     await RemoveEntries(db, row.ExtraEntryIds);
                 }
