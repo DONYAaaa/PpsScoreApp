@@ -195,7 +195,7 @@
         busy = true;
         try
         {
-            var bytes = Bundle.Build(report!);
+            var bytes = await Bundle.BuildAsync(report!);
             await JS.InvokeVoidAsync("downloadFile",
                 $"Отчёт_ИП_{academicYear.Replace('/', '-')}_сем{semester}.zip",
                 "application/zip",
