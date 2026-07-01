@@ -30,12 +30,11 @@ public class ExportBundleService
         // вложения выбранных преподавателей за период
         await using var db = await _factory.CreateDbContextAsync();
         var teacherIds = report.Teachers.Select(t => t.TeacherId).ToList();
-        var attachments = await db.WorkEntries
-            .Where(e => teacherIds.Contains(e.TeacherId)
-                        && e.AcademicYear == report.AcademicYear
-                        && e.Semester == report.Semester
-                        && e.StoredFileName != null)
-            .Select(e => new { e.TeacherId, e.StoredFileName, e.OriginalFileName })
+        var attachments = await db.WorkFiles
+            .Where(f => teacherIds.Contains(f.WorkEntry!.TeacherId)
+                        && f.WorkEntry.AcademicYear == report.AcademicYear
+                        && f.WorkEntry.Semester == report.Semester)
+            .Select(f => new { f.WorkEntry!.TeacherId, f.StoredFileName, f.OriginalFileName })
             .ToListAsync();
 
         using var ms = new MemoryStream();

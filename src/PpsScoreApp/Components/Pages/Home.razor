@@ -3,12 +3,23 @@
 @attribute [Authorize]
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject FileStorageService Storage
+@inject CompletionService Completion
 @inject AuditLogger Audit
 @inject NavigationManager Nav
 
 <PageTitle>Ввод показателей</PageTitle>
 
 <h1>Индивидуальные показатели работы преподавателя</h1>
+
+@if (busy)
+{
+    <div class="busy-overlay">
+        <div class="busy-card">
+            <div class="spinner"></div>
+            <span>@busyText</span>
+        </div>
+    </div>
+}
 
 <div class="toolbar">
     <div class="field">
@@ -55,11 +66,13 @@
     <div class="field grow">
         <label>&nbsp;</label>
         <div class="row toolbar-actions">
+            <span class="save-msg">@saveMessage</span>
+            <button class="btn btn-complete @(isCompleted ? "success" : "")" disabled="@(selectedTeacherId == 0)"
+                    @onclick="ToggleCompleted"
+                    title="Подтвердить, что таблица заполнена и готова к печати">
+                @(isCompleted ? "✓ Заполнено" : "Заполнено")
+            </button>
             <button class="btn primary" @onclick="GoToReport">Перейти к отчётам →</button>
-            @if (!string.IsNullOrEmpty(saveMessage))
-            {
-                <span class="save-msg">@saveMessage</span>
-            }
         </div>
     </div>
 </div>
@@ -262,21 +275,19 @@ else
                         </td>
                         <td class="file-cell">
                             <div class="file-box">
-                                @if (row.EntryId is int fid && row.HasFile && !row.RemoveFile)
+                                @foreach (var f in row.Files)
                                 {
-                                    <a class="file-link" href="/files/@fid" target="_blank" title="@row.OriginalFileName">
-                                        📎 @row.OriginalFileName
-                                    </a>
-                                    <button class="btn small danger" @onclick="() => RemoveFileNow(row)">убрать файл</button>
+                                    <div class="file-item">
+                                        <a class="file-link" href="/files/@f.Id" target="_blank" title="@f.Name">📎 @f.Name</a>
+                                        <button type="button" class="file-x" title="Удалить файл"
+                                                @onclick="() => RemoveFile(row, f.Id)">×</button>
+                                    </div>
                                 }
-                                else
+                                @foreach (var nf in row.NewFiles)
                                 {
-                                    <InputFile OnChange="e => OnFileSelected(row, e)" />
-                                    @if (row.NewFile != null)
-                                    {
-                                        <div class="hint small">@row.NewFile.Name</div>
-                                    }
+                                    <div class="hint small">⏳ @nf.Name</div>
                                 }
+                                <InputFile multiple OnChange="e => OnFilesSelected(row, e)" />
                             </div>
                         </td>
                     </tr>
@@ -308,6 +319,21 @@ else
     private int semester = 2;
 
     private string? saveMessage;
+    private bool busy;
+    private string busyText = "";
+
+    // отметка «Заполнено»
+    private bool isCompleted;
+
+    private async Task ToggleCompleted()
+    {
+        if (selectedTeacherId == 0) return;
+        isCompleted = !isCompleted;
+        await Completion.SetAsync(selectedTeacherId, academicYear, semester, isCompleted, await CurrentUser());
+        Audit.Log(await CurrentUser(),
+            $"{(isCompleted ? "Отмечено «Заполнено»" : "Снята отметка «Заполнено»")} — «{TeacherName()}», {academicYear}, {semester} сем.");
+        saveMessage = isCompleted ? "Отмечено как заполнено" : "Отметка снята";
+    }
 
     // окно-инструкция
     private string? infoTitle;
@@ -319,16 +345,20 @@ else
         infoText = text;
     }
 
-    private async Task OnFileSelected(Row row, InputFileChangeEventArgs e)
+    private async Task OnFilesSelected(Row row, InputFileChangeEventArgs e)
     {
-        row.NewFile = e.File;
-        row.RemoveFile = false;
-        await AutoSaveRow(row);
+        foreach (var f in e.GetMultipleFiles(20))
+            row.NewFiles.Add(f);
+        busy = true;
+        busyText = "Загрузка файлов…";
+        StateHasChanged();
+        try { await AutoSaveRow(row); }
+        finally { busy = false; }
     }
 
-    private async Task RemoveFileNow(Row row)
+    private async Task RemoveFile(Row row, int fileId)
     {
-        row.RemoveFile = true;
+        if (!row.RemoveFileIds.Contains(fileId)) row.RemoveFileIds.Add(fileId);
         await AutoSaveRow(row);
     }
 
@@ -354,11 +384,15 @@ else
         public List<int> ExtraEntryIds = new(); // прежние дубликаты по этому виду — удаляются при сохранении
         public int Value;                    // баллы (целые) вводятся вручную для всех видов
         public string? Comment;
-        public string? StoredFileName;
-        public string? OriginalFileName;
-        public bool HasFile;
-        public IBrowserFile? NewFile;        // выбранный для загрузки файл
-        public bool RemoveFile;              // снять текущий файл
+        public List<FileRef> Files = new();      // уже сохранённые файлы
+        public List<IBrowserFile> NewFiles = new(); // выбранные для загрузки
+        public List<int> RemoveFileIds = new();  // id файлов к удалению
+    }
+
+    private class FileRef
+    {
+        public int Id;
+        public string Name = "";
     }
 
     protected override async Task OnInitializedAsync()
@@ -373,10 +407,11 @@ else
     {
         saveMessage = null;
         rows = new();
-        if (selectedTeacherId == 0) return;
+        if (selectedTeacherId == 0) { isCompleted = false; return; }
 
         await using var db = await DbFactory.CreateDbContextAsync();
         var entries = await db.WorkEntries
+            .Include(e => e.WorkFiles)
             .Where(e => e.TeacherId == selectedTeacherId
                         && e.AcademicYear == academicYear
                         && e.Semester == semester)
@@ -393,14 +428,17 @@ else
                 row.EntryId = primary.Id;
                 row.ExtraEntryIds = es.Skip(1).Select(e => e.Id).ToList();
                 row.Comment = primary.Comment;
-                row.StoredFileName = primary.StoredFileName;
-                row.OriginalFileName = primary.OriginalFileName;
-                row.HasFile = !string.IsNullOrEmpty(primary.StoredFileName);
                 row.Value = (int)Math.Round(primary.Points);
+                row.Files = primary.WorkFiles
+                    .OrderBy(f => f.Id)
+                    .Select(f => new FileRef { Id = f.Id, Name = f.OriginalFileName ?? f.StoredFileName })
+                    .ToList();
             }
 
             rows.Add(row);
         }
+
+        isCompleted = await Completion.IsCompletedAsync(selectedTeacherId, academicYear, semester);
     }
 
     private async Task OnTeacherChanged(ChangeEventArgs e)
@@ -471,12 +509,12 @@ else
         {
             await using var db = await DbFactory.CreateDbContextAsync();
 
-            if (RowActive(row))
+            if (RowActive(row) || row.NewFiles.Count > 0 || row.RemoveFileIds.Count > 0)
             {
                 WorkEntry entry;
                 if (row.EntryId is int id)
                 {
-                    entry = await db.WorkEntries.FirstAsync(x => x.Id == id);
+                    entry = await db.WorkEntries.Include(e => e.WorkFiles).FirstAsync(x => x.Id == id);
                 }
                 else
                 {
@@ -496,18 +534,29 @@ else
                 entry.Points = row.Value;
                 entry.Comment = string.IsNullOrWhiteSpace(row.Comment) ? null : row.Comment!.Trim();
 
-                if (row.RemoveFile && !string.IsNullOrEmpty(entry.StoredFileName))
+                // удаление отмеченных файлов
+                if (row.RemoveFileIds.Count > 0)
                 {
-                    Storage.Delete(entry.StoredFileName);
-                    entry.StoredFileName = null;
-                    entry.OriginalFileName = null;
+                    var toDelete = entry.WorkFiles.Where(f => row.RemoveFileIds.Contains(f.Id)).ToList();
+                    foreach (var f in toDelete)
+                    {
+                        Storage.Delete(f.StoredFileName);
+                        entry.WorkFiles.Remove(f);
+                        db.WorkFiles.Remove(f);
+                    }
                 }
-                if (row.NewFile != null)
+
+                // добавление новых файлов
+                foreach (var nf in row.NewFiles)
                 {
-                    if (!string.IsNullOrEmpty(entry.StoredFileName)) Storage.Delete(entry.StoredFileName);
-                    await using var stream = row.NewFile.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-                    entry.StoredFileName = await Storage.SaveAsync(stream, row.NewFile.Name);
-                    entry.OriginalFileName = row.NewFile.Name;
+                    await using var stream = nf.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
+                    var stored = await Storage.SaveAsync(stream, nf.Name);
+                    entry.WorkFiles.Add(new WorkFile
+                    {
+                        StoredFileName = stored,
+                        OriginalFileName = nf.Name,
+                        CreatedAt = DateTime.UtcNow
+                    });
                 }
 
                 await RemoveEntries(db, row.ExtraEntryIds);
@@ -515,11 +564,12 @@ else
 
                 row.EntryId = entry.Id;
                 row.ExtraEntryIds.Clear();
-                row.StoredFileName = entry.StoredFileName;
-                row.OriginalFileName = entry.OriginalFileName;
-                row.HasFile = !string.IsNullOrEmpty(entry.StoredFileName);
-                row.NewFile = null;
-                row.RemoveFile = false;
+                row.NewFiles.Clear();
+                row.RemoveFileIds.Clear();
+                row.Files = entry.WorkFiles
+                    .OrderBy(f => f.Id)
+                    .Select(f => new FileRef { Id = f.Id, Name = f.OriginalFileName ?? f.StoredFileName })
+                    .ToList();
 
                 Audit.Log(await CurrentUser(),
                     $"Показатель п. {row.Wt.FullNumber} = {entry.Points:0.##} б. — «{TeacherName()}», {academicYear}, {semester} сем.");
@@ -538,11 +588,9 @@ else
                 }
                 row.EntryId = null;
                 row.ExtraEntryIds.Clear();
-                row.StoredFileName = null;
-                row.OriginalFileName = null;
-                row.HasFile = false;
-                row.NewFile = null;
-                row.RemoveFile = false;
+                row.Files.Clear();
+                row.NewFiles.Clear();
+                row.RemoveFileIds.Clear();
             }
 
             saveMessage = "Сохранено";
@@ -578,6 +626,9 @@ else
             ? rows.Where(r => r.Wt.Section == sec).ToList()
             : rows.ToList();
 
+        busy = true;
+        busyText = pendingClearSection is null ? "Очистка таблицы…" : "Очистка раздела…";
+        StateHasChanged();
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
@@ -599,11 +650,16 @@ else
                 row.Comment = null;
                 row.EntryId = null;
                 row.ExtraEntryIds.Clear();
-                row.StoredFileName = null;
-                row.OriginalFileName = null;
-                row.HasFile = false;
-                row.NewFile = null;
-                row.RemoveFile = false;
+                row.Files.Clear();
+                row.NewFiles.Clear();
+                row.RemoveFileIds.Clear();
+            }
+
+            // полная очистка снимает отметку «Заполнено»
+            if (pendingClearSection is null && isCompleted)
+            {
+                isCompleted = false;
+                await Completion.SetAsync(selectedTeacherId, academicYear, semester, false, await CurrentUser());
             }
 
             Audit.Log(await CurrentUser(), pendingClearSection is WorkSection s
@@ -615,16 +671,21 @@ else
         {
             saveMessage = "Ошибка очистки: " + ex.Message;
         }
+        finally
+        {
+            busy = false;
+        }
     }
 
     private async Task RemoveEntries(AppDbContext db, IEnumerable<int> ids)
     {
         foreach (var did in ids)
         {
-            var d = await db.WorkEntries.FindAsync(did);
+            var d = await db.WorkEntries.Include(e => e.WorkFiles).FirstOrDefaultAsync(e => e.Id == did);
             if (d == null) continue;
+            foreach (var wf in d.WorkFiles) Storage.Delete(wf.StoredFileName);
             if (!string.IsNullOrEmpty(d.StoredFileName)) Storage.Delete(d.StoredFileName);
-            db.WorkEntries.Remove(d);
+            db.WorkEntries.Remove(d); // WorkFiles удалятся каскадом
         }
     }
 
@@ -680,6 +741,12 @@ else
                 .Select(e => e.StoredFileName!)
                 .ToListAsync();
             foreach (var f in stored) Storage.Delete(f);
+
+            var storedMulti = await db.WorkFiles
+                .Where(f => f.WorkEntry!.TeacherId == selectedTeacherId)
+                .Select(f => f.StoredFileName)
+                .ToListAsync();
+            foreach (var f in storedMulti) Storage.Delete(f);
 
             var teacher = await db.Teachers.FindAsync(selectedTeacherId);
             if (teacher != null)

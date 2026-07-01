@@ -46,6 +46,9 @@ public class WorkEntry
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Прикреплённые файлы (несколько на один вид работы).</summary>
+    public List<WorkFile> WorkFiles { get; set; } = new();
+
     public string Period => $"{AcademicYear}, {Semester} сем.";
     public bool HasFile => !string.IsNullOrEmpty(StoredFileName);
 }

@@ -12,6 +12,8 @@ public class AppDbContext : DbContext
     public DbSet<WorkType> WorkTypes => Set<WorkType>();
     public DbSet<ScoreOption> ScoreOptions => Set<ScoreOption>();
     public DbSet<WorkEntry> WorkEntries => Set<WorkEntry>();
+    public DbSet<WorkFile> WorkFiles => Set<WorkFile>();
+    public DbSet<CompletionStatus> Completions => Set<CompletionStatus>();
     public DbSet<AppUser> Users => Set<AppUser>();
 
     protected override void OnModelCreating(ModelBuilder b)
@@ -48,6 +50,18 @@ public class AppDbContext : DbContext
             .HasForeignKey(e => e.ScoreOptionId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        b.Entity<WorkEntry>()
+            .HasMany(e => e.WorkFiles)
+            .WithOne(f => f.WorkEntry!)
+            .HasForeignKey(f => f.WorkEntryId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        b.Entity<CompletionStatus>()
+            .HasOne(c => c.Teacher)
+            .WithMany()
+            .HasForeignKey(c => c.TeacherId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         // decimal precision
         foreach (var prop in new[] { "FixedPoints", "UnitPoints" })
             b.Entity<WorkType>().Property(prop).HasPrecision(6, 2);
@@ -57,5 +71,6 @@ public class AppDbContext : DbContext
         b.Entity<Department>().HasIndex(d => d.Name).IsUnique();
         b.Entity<WorkEntry>().HasIndex(e => new { e.TeacherId, e.AcademicYear, e.Semester });
         b.Entity<AppUser>().HasIndex(u => u.Login).IsUnique();
+        b.Entity<CompletionStatus>().HasIndex(c => new { c.TeacherId, c.AcademicYear, c.Semester }).IsUnique();
     }
 }

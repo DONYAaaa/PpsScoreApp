@@ -44,6 +44,7 @@ builder.Services.AddScoped<PdfExportService>();
 builder.Services.AddScoped<WordExportService>();
 builder.Services.AddScoped<ExportBundleService>();
 builder.Services.AddScoped<UserService>();
+builder.Services.AddScoped<CompletionService>();
 builder.Services.AddSingleton<FileStorageService>();
 builder.Services.AddSingleton<AuditLogger>();
 
@@ -108,6 +109,17 @@ app.MapGet("/files/{id:int}", async (int id, IDbContextFactory<AppDbContext> f, 
     var bytes = await storage.ReadAsync(entry.StoredFileName);
     if (bytes == null) return Results.NotFound();
     return Results.File(bytes, "application/octet-stream", entry.OriginalFileName ?? entry.StoredFileName);
+}).RequireAuthorization();
+
+// Скачивание файлов-приложений (несколько на вид работы)
+app.MapGet("/workfiles/{id:int}", async (int id, IDbContextFactory<AppDbContext> f, FileStorageService storage) =>
+{
+    await using var db = await f.CreateDbContextAsync();
+    var wf = await db.WorkFiles.FindAsync(id);
+    if (wf == null) return Results.NotFound();
+    var bytes = await storage.ReadAsync(wf.StoredFileName);
+    if (bytes == null) return Results.NotFound();
+    return Results.File(bytes, "application/octet-stream", wf.OriginalFileName ?? wf.StoredFileName);
 }).RequireAuthorization();
 
 // Создание БД и наполнение справочников

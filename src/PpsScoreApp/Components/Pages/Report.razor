@@ -4,6 +4,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ReportService Reports
 @inject ExportBundleService Bundle
+@inject CompletionService Completion
 @inject IJSRuntime JS
 
 <PageTitle>Отчёты</PageTitle>
@@ -13,7 +14,7 @@
 <div class="toolbar">
     <div class="field">
         <label>Учебный год</label>
-        <select class="control" @bind="academicYear">
+        <select class="control" value="@academicYear" @onchange="OnYearChanged">
             @foreach (var y in years)
             {
                 <option value="@y">@y</option>
@@ -22,7 +23,7 @@
     </div>
     <div class="field">
         <label>Семестр</label>
-        <select class="control" @bind="semester">
+        <select class="control" value="@semester" @onchange="OnSemChanged">
             @foreach (var s in Periods.Semesters)
             {
                 <option value="@s">@s</option>
@@ -47,6 +48,13 @@
         </div>
     </div>
 
+    <div class="status-legend">
+        Заполнение за выбранный период:
+        <span class="lg lg-done">● отмечено «Заполнено»</span>
+        <span class="lg lg-partial">● заполнение начато</span>
+        <span class="lg lg-empty">● ничего не заполнено</span>
+    </div>
+
     @foreach (var d in departments)
     {
         var deptTeachers = teachers.Where(t => t.DepartmentId == d.Id).ToList();
@@ -62,7 +70,7 @@
             <div class="teacher-chips">
                 @foreach (var t in deptTeachers)
                 {
-                    <label class="chip">
+                    <label class="chip status-@StatusClass(t.Id)" title="@StatusTitle(t.Id)">
                         <input type="checkbox"
                                checked="@selected.Contains(t.Id)"
                                @onchange="e => ToggleTeacher(t.Id, (bool)e.Value!)" />
@@ -150,6 +158,9 @@
     private ReportResult? report;
     private bool busy;
 
+    private HashSet<int> completedIds = new();
+    private HashSet<int> startedIds = new();
+
     private List<int> SelectedIds => selected.ToList();
 
     protected override async Task OnInitializedAsync()
@@ -163,7 +174,39 @@
         if (QDept is > 0)
             foreach (var t in teachers.Where(t => t.DepartmentId == QDept))
                 selected.Add(t.Id);
+
+        await LoadStatuses();
     }
+
+    private async Task LoadStatuses()
+    {
+        completedIds = await Completion.CompletedIdsAsync(academicYear, semester);
+        startedIds = await Completion.StartedIdsAsync(academicYear, semester);
+    }
+
+    private async Task OnYearChanged(ChangeEventArgs e)
+    {
+        academicYear = e.Value?.ToString() ?? academicYear;
+        await LoadStatuses();
+    }
+
+    private async Task OnSemChanged(ChangeEventArgs e)
+    {
+        semester = int.Parse(e.Value?.ToString() ?? "2");
+        await LoadStatuses();
+    }
+
+    private string StatusClass(int teacherId) =>
+        completedIds.Contains(teacherId) ? "done"
+        : startedIds.Contains(teacherId) ? "partial"
+        : "empty";
+
+    private string StatusTitle(int teacherId) => StatusClass(teacherId) switch
+    {
+        "done" => "Отмечено «Заполнено»",
+        "partial" => "Заполнение начато",
+        _ => "Ничего не заполнено за период"
+    };
 
     private void ToggleTeacher(int id, bool on)
     {

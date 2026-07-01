@@ -383,7 +383,7 @@ textarea.control { min-width: 320px; resize: vertical; }
 }
 .grid.sheet tbody tr.section-row td {
     position: sticky;
-    top: 32px;              /* высота строки шапки */
+    top: 33px;              /* высота строки шапки */
     z-index: 2;
     background: #e8eef7;
     border-bottom: 1px solid var(--line);
@@ -422,3 +422,76 @@ textarea.control { min-width: 320px; resize: vertical; }
     white-space: nowrap;
     font-size: 12px;
 }
+
+/* ---- статусы заполнения в отчётах ---- */
+.status-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 6px 2px 12px;
+    border-bottom: 1px dashed var(--line);
+    margin-bottom: 12px;
+}
+.status-legend .lg { font-weight: 600; }
+.lg-done, .chip.status-done { color: #15803d; }      /* зелёный */
+.lg-partial, .chip.status-partial { color: #ca8a04; } /* жёлтый */
+.lg-empty, .chip.status-empty { color: #dc2626; }    /* красный */
+.chip.status-done, .chip.status-partial, .chip.status-empty { font-weight: 600; }
+
+/* ---- несколько файлов на строку ---- */
+.file-box { align-items: stretch; }
+.file-item { display: flex; align-items: center; gap: 4px; justify-content: center; }
+.file-item .file-link { max-width: 140px; }
+.file-x {
+    border: none;
+    background: none;
+    color: #dc2626;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+}
+.file-x:hover { color: #991b1b; }
+
+/* кнопка «Заполнено» в отмеченном состоянии */
+.btn.success { background: #15803d; border-color: #15803d; color: #fff; }
+.btn.success:hover { background: #166534; }
+
+/* ---- стабильные кнопки в тулбаре ---- */
+.toolbar-actions { display: flex; }
+.btn-complete { min-width: 150px; justify-content: center; text-align: center; }
+
+/* ---- индикатор выполнения ---- */
+.busy-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(248, 250, 252, .55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+.busy-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 24px;
+    box-shadow: var(--shadow);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-weight: 600;
+    color: #334155;
+}
+.spinner {
+    width: 22px;
+    height: 22px;
+    border: 3px solid #cbd5e1;
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
