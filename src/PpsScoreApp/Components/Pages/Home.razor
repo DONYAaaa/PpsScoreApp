@@ -51,6 +51,17 @@
             }
         </select>
     </div>
+
+    <div class="field grow">
+        <label>&nbsp;</label>
+        <div class="row toolbar-actions">
+            <button class="btn primary" @onclick="GoToReport">Перейти к отчётам →</button>
+            @if (!string.IsNullOrEmpty(saveMessage))
+            {
+                <span class="save-msg">@saveMessage</span>
+            }
+        </div>
+    </div>
 </div>
 
 @if (showAddTeacher)
@@ -115,6 +126,30 @@
     </div>
 }
 
+@if (showClearConfirm)
+{
+    <div class="modal-backdrop" @onclick="() => showClearConfirm = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@(pendingClearSection is null ? "Очистить всю таблицу?" : "Очистить раздел?")</h3>
+            <p>
+                @if (pendingClearSection is WorkSection sec)
+                {
+                    <text>Будут удалены все баллы, комментарии и файлы раздела «@sec.Title()» преподавателя <strong>@TeacherName()</strong> за выбранный период.</text>
+                }
+                else
+                {
+                    <text>Будут удалены все баллы, комментарии и файлы преподавателя <strong>@TeacherName()</strong> за выбранный период (все разделы).</text>
+                }
+            </p>
+            <p class="hint">Действие необратимо.</p>
+            <div class="modal-actions">
+                <button class="btn" @onclick="() => showClearConfirm = false">Отмена</button>
+                <button class="btn danger" @onclick="DoClear">Очистить</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (infoText != null)
 {
     <div class="modal-backdrop" @onclick="() => infoText = null">
@@ -168,8 +203,11 @@ else
                 }
             </span>
         </div>
+        <button class="btn danger clear-all" @onclick="ConfirmClearAll"
+                title="Удалить все баллы преподавателя за выбранный период">Очистить таблицу</button>
     </div>
 
+    <div class="sheet-scroll">
     <table class="grid sheet">
         <thead>
             <tr>
@@ -190,7 +228,11 @@ else
                 var raw = SectionRaw(sec);
                 var capped = ScoringRules.CapSection(raw);
                 <tr class="section-row">
-                    <td colspan="4">@sec.FullTitle()</td>
+                    <td colspan="4">
+                        <span class="sec-title-text">@sec.FullTitle()</span>
+                        <button class="btn small danger clear-sec" @onclick="() => ConfirmClearSection(sec)"
+                                title="Очистить этот раздел">Очистить раздел</button>
+                    </td>
                     <td class="num">@capped.ToString("0.##")@(capped != raw ? $" / {raw:0.##}" : "")</td>
                     <td colspan="2"></td>
                 </tr>
@@ -207,14 +249,10 @@ else
                                 }
                                 <span>@row.Wt.Title</span>
                             </div>
-                            @if (row.EntryId is int fid && row.HasFile && !row.RemoveFile)
-                            {
-                                <div class="hint small">📎 <a href="/files/@fid" target="_blank">@row.OriginalFileName</a></div>
-                            }
                         </td>
                         <td class="num">@RefPoints(row.Wt)</td>
                         <td>
-                            <input type="number" step="0.5" class="control narrow"
+                            <input type="number" step="1" class="control narrow"
                                    @bind="row.Value" @bind:after="() => AutoSaveRow(row)" />
                         </td>
                         <td class="num">@RowPoints(row).ToString("0.##")</td>
@@ -223,34 +261,29 @@ else
                                    @bind="row.Comment" @bind:after="() => AutoSaveRow(row)" />
                         </td>
                         <td class="file-cell">
-                            @if (row.HasFile && !row.RemoveFile)
-                            {
-                                <button class="btn small danger" @onclick="() => RemoveFileNow(row)">убрать файл</button>
-                            }
-                            else
-                            {
-                                <InputFile OnChange="e => OnFileSelected(row, e)" />
-                                @if (row.NewFile != null)
+                            <div class="file-box">
+                                @if (row.EntryId is int fid && row.HasFile && !row.RemoveFile)
                                 {
-                                    <div class="hint small">@row.NewFile.Name</div>
+                                    <a class="file-link" href="/files/@fid" target="_blank" title="@row.OriginalFileName">
+                                        📎 @row.OriginalFileName
+                                    </a>
+                                    <button class="btn small danger" @onclick="() => RemoveFileNow(row)">убрать файл</button>
                                 }
-                            }
+                                else
+                                {
+                                    <InputFile OnChange="e => OnFileSelected(row, e)" />
+                                    @if (row.NewFile != null)
+                                    {
+                                        <div class="hint small">@row.NewFile.Name</div>
+                                    }
+                                }
+                            </div>
                         </td>
                     </tr>
                 }
             }
         </tbody>
     </table>
-
-    <div class="footer-actions sheet-actions">
-        @if (!string.IsNullOrEmpty(saveMessage))
-        {
-            <span class="save-msg">@saveMessage</span>
-        }
-        <button class="btn" @onclick="GoToReport">Перейти к отчётам →</button>
-        <button class="btn primary big" disabled="@saving" @onclick="Save">
-            @(saving ? "Сохраняю…" : "Сохранить")
-        </button>
     </div>
 }
 
@@ -274,7 +307,6 @@ else
     private string academicYear = Periods.CurrentAcademicYear();
     private int semester = 2;
 
-    private bool saving;
     private string? saveMessage;
 
     // окно-инструкция
@@ -320,7 +352,7 @@ else
         public WorkType Wt = default!;
         public int? EntryId;                 // основная запись, если есть
         public List<int> ExtraEntryIds = new(); // прежние дубликаты по этому виду — удаляются при сохранении
-        public decimal Value;                // баллы вводятся вручную для всех видов
+        public int Value;                    // баллы (целые) вводятся вручную для всех видов
         public string? Comment;
         public string? StoredFileName;
         public string? OriginalFileName;
@@ -364,7 +396,7 @@ else
                 row.StoredFileName = primary.StoredFileName;
                 row.OriginalFileName = primary.OriginalFileName;
                 row.HasFile = !string.IsNullOrEmpty(primary.StoredFileName);
-                row.Value = primary.Points;
+                row.Value = (int)Math.Round(primary.Points);
             }
 
             rows.Add(row);
@@ -521,82 +553,67 @@ else
         }
     }
 
-    // ---- сохранение всей таблицы ----
-    private async Task Save()
+    // ---- очистка таблицы / раздела ----
+    private bool showClearConfirm;
+    private WorkSection? pendingClearSection; // null = вся таблица
+
+    private void ConfirmClearAll()
     {
+        pendingClearSection = null;
+        showClearConfirm = true;
+    }
+
+    private void ConfirmClearSection(WorkSection sec)
+    {
+        pendingClearSection = sec;
+        showClearConfirm = true;
+    }
+
+    private async Task DoClear()
+    {
+        showClearConfirm = false;
         if (selectedTeacherId == 0) return;
-        saving = true;
-        saveMessage = null;
+
+        var scope = pendingClearSection is WorkSection sec
+            ? rows.Where(r => r.Wt.Section == sec).ToList()
+            : rows.ToList();
+
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-
-            foreach (var row in rows)
+            var ids = new List<int>();
+            foreach (var row in scope)
             {
-                if (RowActive(row))
-                {
-                    WorkEntry entry;
-                    if (row.EntryId is int id)
-                    {
-                        entry = await db.WorkEntries.FirstAsync(x => x.Id == id);
-                    }
-                    else
-                    {
-                        entry = new WorkEntry
-                        {
-                            TeacherId = selectedTeacherId,
-                            AcademicYear = academicYear,
-                            Semester = semester,
-                            CreatedAt = DateTime.UtcNow
-                        };
-                        db.WorkEntries.Add(entry);
-                    }
-
-                    entry.WorkTypeId = row.Wt.Id;
-                    entry.ScoreOptionId = null;
-                    entry.Quantity = null;
-                    entry.Points = row.Value;
-                    entry.Comment = string.IsNullOrWhiteSpace(row.Comment) ? null : row.Comment!.Trim();
-
-                    // файл-вложение
-                    if (row.RemoveFile && !string.IsNullOrEmpty(entry.StoredFileName))
-                    {
-                        Storage.Delete(entry.StoredFileName);
-                        entry.StoredFileName = null;
-                        entry.OriginalFileName = null;
-                    }
-                    if (row.NewFile != null)
-                    {
-                        if (!string.IsNullOrEmpty(entry.StoredFileName)) Storage.Delete(entry.StoredFileName);
-                        await using var stream = row.NewFile.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
-                        entry.StoredFileName = await Storage.SaveAsync(stream, row.NewFile.Name);
-                        entry.OriginalFileName = row.NewFile.Name;
-                    }
-
-                    await RemoveEntries(db, row.ExtraEntryIds);
-                }
-                else
-                {
-                    var ids = new List<int>();
-                    if (row.EntryId is int pid) ids.Add(pid);
-                    ids.AddRange(row.ExtraEntryIds);
-                    await RemoveEntries(db, ids);
-                }
+                if (row.EntryId is int pid) ids.Add(pid);
+                ids.AddRange(row.ExtraEntryIds);
+            }
+            if (ids.Count > 0)
+            {
+                await RemoveEntries(db, ids);
+                await db.SaveChangesAsync();
             }
 
-            await db.SaveChangesAsync();
-            Audit.Log(await CurrentUser(),
-                $"Сохранены показатели преподавателя «{TeacherName()}» за {academicYear}, {semester} сем. (итог {GrandTotal():0.##})");
-            saveMessage = "Сохранено.";
-            await LoadRows();
+            foreach (var row in scope)
+            {
+                row.Value = 0;
+                row.Comment = null;
+                row.EntryId = null;
+                row.ExtraEntryIds.Clear();
+                row.StoredFileName = null;
+                row.OriginalFileName = null;
+                row.HasFile = false;
+                row.NewFile = null;
+                row.RemoveFile = false;
+            }
+
+            Audit.Log(await CurrentUser(), pendingClearSection is WorkSection s
+                ? $"Очищен раздел {(int)s} преподавателя «{TeacherName()}» за {academicYear}, {semester} сем."
+                : $"Очищена вся таблица преподавателя «{TeacherName()}» за {academicYear}, {semester} сем.");
+            saveMessage = "Очищено";
         }
         catch (Exception ex)
         {
-            saveMessage = "Ошибка сохранения: " + ex.Message;
-        }
-        finally
-        {
-            saving = false;
+            saveMessage = "Ошибка очистки: " + ex.Message;
         }
     }
 

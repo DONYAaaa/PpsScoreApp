@@ -355,3 +355,70 @@ textarea.control { min-width: 320px; resize: vertical; }
 .total-chip .info-btn { width: 16px; height: 16px; font-size: 11px; }
 .total-chip.grand .info-btn { border-color: #fff; color: #fff; background: transparent; }
 .total-chip.grand .info-btn:hover { background: #fff; color: var(--primary); }
+
+/* ===== Итерация: закрепление шапки, кнопки очистки, «?», файл ===== */
+
+/* прокручиваемая область таблицы: шапка и заголовок раздела остаются видимыми */
+.sheet-scroll {
+    overflow: auto;
+    max-height: calc(100vh - 320px);
+    min-height: 260px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+.grid.sheet {
+    margin: 0;
+    border: none;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: visible;
+    box-shadow: none;
+}
+.grid.sheet thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #eef2f8;
+    border-bottom: 1px solid var(--line);
+}
+.grid.sheet tbody tr.section-row td {
+    position: sticky;
+    top: 32px;              /* высота строки шапки */
+    z-index: 2;
+    background: #e8eef7;
+    border-bottom: 1px solid var(--line);
+}
+
+/* тулбар: кнопки действий справа, всегда видимы (над прокруткой) */
+.toolbar .grow { flex: 1 1 auto; }
+.toolbar-actions { justify-content: flex-end; align-items: center; gap: 12px; }
+
+/* «Очистить таблицу» рядом с баллами */
+.totals-bar { align-items: center; }
+.clear-all { margin-left: 12px; }
+
+/* «Очистить раздел» у заголовка раздела */
+.section-row .clear-sec { margin-left: 14px; }
+.section-row .sec-title-text { font-weight: 700; }
+
+/* «?» — аккуратный кружок с центрированным знаком */
+.grid.sheet td.wt-cell .wt-title { align-items: center; }
+.info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+}
+
+/* столбец «Файл»: возвращаем нормальную ячейку таблицы, содержимое — в блоке */
+.grid.sheet td.file-cell { display: table-cell; text-align: center; vertical-align: middle; }
+.file-box { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.file-box input[type=file] { max-width: 165px; font-size: 12px; }
+.file-link {
+    max-width: 165px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+}
