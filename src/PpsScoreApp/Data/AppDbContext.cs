@@ -62,6 +62,14 @@ public class AppDbContext : DbContext
             .HasForeignKey(c => c.TeacherId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Привязка учётной записи к преподавателю. Удаление преподавателя не удаляет
+        // учётку — она просто остаётся без привязки (админ переназначит).
+        b.Entity<AppUser>()
+            .HasOne(u => u.Teacher)
+            .WithMany()
+            .HasForeignKey(u => u.TeacherId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         // decimal precision
         foreach (var prop in new[] { "FixedPoints", "UnitPoints" })
             b.Entity<WorkType>().Property(prop).HasPrecision(6, 2);
@@ -71,6 +79,9 @@ public class AppDbContext : DbContext
         b.Entity<Department>().HasIndex(d => d.Name).IsUnique();
         b.Entity<WorkEntry>().HasIndex(e => new { e.TeacherId, e.AcademicYear, e.Semester });
         b.Entity<AppUser>().HasIndex(u => u.Login).IsUnique();
+        // один преподаватель — не более одной учётной записи
+        b.Entity<AppUser>().HasIndex(u => u.TeacherId).IsUnique()
+            .HasFilter("[TeacherId] IS NOT NULL");
         b.Entity<CompletionStatus>().HasIndex(c => new { c.TeacherId, c.AcademicYear, c.Semester }).IsUnique();
     }
 }

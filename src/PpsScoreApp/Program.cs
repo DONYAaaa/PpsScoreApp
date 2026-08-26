@@ -45,6 +45,7 @@ builder.Services.AddScoped<PdfExportService>();
 builder.Services.AddScoped<WordExportService>();
 builder.Services.AddScoped<ExportBundleService>();
 builder.Services.AddScoped<UserService>();
+builder.Services.AddScoped<TeacherService>();
 builder.Services.AddScoped<CompletionService>();
 builder.Services.AddSingleton<FileStorageService>();
 builder.Services.AddSingleton<AuditLogger>();
@@ -83,6 +84,9 @@ app.MapPost("/auth/login", async (HttpContext http, UserService users, AuditLogg
         new(ClaimTypes.Name, user.Login),
         new("DisplayName", user.Name),
     };
+    // Привязка к преподавателю на страницах перечитывается из БД (UserService.GetByLoginAsync),
+    // чтобы изменения администратора действовали без перелогина. Клейм — для справки.
+    if (user.TeacherId is int tid) claims.Add(new("TeacherId", tid.ToString()));
     if (user.IsAdmin) claims.Add(new(ClaimTypes.Role, "Admin"));
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);

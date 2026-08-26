@@ -2,52 +2,134 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin")]
 @inject UserService UserSvc
+@inject TeacherService TeacherSvc
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject AuditLogger Audit
 
 <PageTitle>Пользователи</PageTitle>
 
-<h1>Пользователи</h1>
+<h1>Пользователи и преподаватели</h1>
 
-<div class="toolbar">
-    <div class="field grow">
-        <label>&nbsp;</label>
-        <span class="hint">Регистрация новых пользователей доступна только администратору.</span>
-    </div>
-    <div class="field">
-        <label>&nbsp;</label>
-        <button class="btn primary" @onclick="OpenCreate">+ Пользователь</button>
-    </div>
+<div class="tabs">
+    <button class="tab @(tab == Tab.Users ? "active" : "")" @onclick="() => tab = Tab.Users">
+        Учётные записи (@users.Count)
+    </button>
+    <button class="tab @(tab == Tab.Teachers ? "active" : "")" @onclick="() => tab = Tab.Teachers">
+        Преподаватели (@teachers.Count)
+    </button>
 </div>
 
-<table class="grid">
-    <thead>
-        <tr>
-            <th>Логин</th>
-            <th>Имя</th>
-            <th style="width:120px">Роль</th>
-            <th style="width:120px">Статус</th>
-            <th style="width:110px"></th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach (var u in users)
-        {
-            <tr>
-                <td>@u.Login</td>
-                <td>@u.DisplayName</td>
-                <td>@(u.IsAdmin ? "Администратор" : "Пользователь")</td>
-                <td>@(u.IsActive ? "активен" : "отключён")</td>
-                <td class="actions">
-                    <button class="btn small danger" @onclick="() => OpenDelete(u)">Удалить</button>
-                </td>
-            </tr>
-        }
-    </tbody>
-</table>
-
-@if (showCreate)
+@if (tab == Tab.Users)
 {
-    <div class="modal-backdrop" @onclick="() => showCreate = false">
+    <div class="toolbar">
+        <div class="field grow">
+            <label>&nbsp;</label>
+            <span class="hint">
+                Обычная учётная запись правит показатели только своего преподавателя.
+                Администратор видит и правит всех.
+            </span>
+        </div>
+        <div class="field">
+            <label>&nbsp;</label>
+            <button class="btn primary" @onclick="OpenCreateUser">+ Пользователь</button>
+        </div>
+    </div>
+
+    <table class="grid">
+        <thead>
+            <tr>
+                <th>Логин</th>
+                <th>Имя</th>
+                <th>Преподаватель</th>
+                <th>Кафедра</th>
+                <th style="width:120px">Роль</th>
+                <th style="width:100px">Статус</th>
+                <th style="width:170px"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var u in users)
+            {
+                <tr>
+                    <td>@u.Login</td>
+                    <td>@u.DisplayName</td>
+                    <td>
+                        @if (u.Teacher != null)
+                        {
+                            @u.Teacher.FullName
+                        }
+                        else if (u.IsAdmin)
+                        {
+                            <span class="muted">все</span>
+                        }
+                        else
+                        {
+                            <span class="warn-text">не привязан</span>
+                        }
+                    </td>
+                    <td class="muted">@u.Teacher?.Department?.Name</td>
+                    <td>@(u.IsAdmin ? "Администратор" : "Пользователь")</td>
+                    <td>@(u.IsActive ? "активен" : "отключён")</td>
+                    <td class="actions">
+                        <button class="btn small" @onclick="() => OpenAccess(u)">Доступ</button>
+                        <button class="btn small danger" @onclick="() => OpenDeleteUser(u)">Удалить</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <div class="toolbar">
+        <div class="field grow">
+            <label>&nbsp;</label>
+            <span class="hint">Справочник преподавателей: добавление, переименование, перевод на другую кафедру.</span>
+        </div>
+        <div class="field">
+            <label>&nbsp;</label>
+            <button class="btn primary" @onclick="OpenCreateTeacher">+ Преподаватель</button>
+        </div>
+    </div>
+
+    <table class="grid">
+        <thead>
+            <tr>
+                <th>Фамилия И.О.</th>
+                <th>Кафедра</th>
+                <th style="width:200px">Учётная запись</th>
+                <th style="width:180px"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var t in teachers)
+            {
+                <tr>
+                    <td>@t.FullName</td>
+                    <td class="muted">@t.Department?.Name</td>
+                    <td>
+                        @if (linkedAccounts.TryGetValue(t.Id, out var login))
+                        {
+                            @login
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </td>
+                    <td class="actions">
+                        <button class="btn small" @onclick="() => OpenEditTeacher(t)">Изменить</button>
+                        <button class="btn small danger" @onclick="() => OpenDeleteTeacher(t)">Удалить</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (showCreateUser)
+{
+    <div class="modal-backdrop" @onclick="() => showCreateUser = false">
         <div class="modal" @onclick:stopPropagation>
             <h3>Новый пользователь</h3>
             <div class="field">
@@ -63,34 +145,180 @@
                 <input class="control" type="text" @bind="newPassword" autocomplete="off" />
             </div>
             <label class="dept-line">
-                <input type="checkbox" @bind="newIsAdmin" /> Администратор
+                <input type="checkbox" @bind="newIsAdmin" /> Администратор (доступ ко всем преподавателям)
             </label>
-            @if (!string.IsNullOrEmpty(createError))
+            @if (!newIsAdmin)
             {
-                <div class="error">@createError</div>
+                <div class="field">
+                    <label>Кафедра</label>
+                    <select class="control" value="@newDeptId" @onchange="OnNewDeptChanged">
+                        <option value="0">— выберите —</option>
+                        @foreach (var d in departments)
+                        {
+                            <option value="@d.Id">@d.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Преподаватель</label>
+                    <select class="control" @bind="newTeacherId" disabled="@(newDeptId == 0)">
+                        <option value="0">— создать нового —</option>
+                        @foreach (var t in FreeTeachers(newDeptId, null))
+                        {
+                            <option value="@t.Id">@t.FullName</option>
+                        }
+                    </select>
+                    <span class="hint small">В списке — только преподаватели без учётной записи.</span>
+                </div>
+                @if (newTeacherId == 0)
+                {
+                    <div class="field">
+                        <label>Фамилия И.О. нового преподавателя</label>
+                        <input class="control" @bind="newTeacherFullName" placeholder="Иванов И. И." />
+                        <span class="hint small">
+                            Преподаватель будет добавлен на выбранную кафедру вместе с учётной записью.
+                            Если оставить пустым — возьмём «Имя».
+                        </span>
+                    </div>
+                }
+            }
+            @if (!string.IsNullOrEmpty(userError))
+            {
+                <div class="error">@userError</div>
             }
             <div class="modal-actions">
-                <button class="btn" @onclick="() => showCreate = false">Отмена</button>
+                <button class="btn" @onclick="() => showCreateUser = false">Отмена</button>
                 <button class="btn primary" @onclick="CreateUser">Создать</button>
             </div>
         </div>
     </div>
 }
 
-@if (showDelete)
+@if (accessTarget != null)
 {
-    <div class="modal-backdrop" @onclick="() => showDelete = false">
+    <div class="modal-backdrop" @onclick="CloseAccess">
         <div class="modal" @onclick:stopPropagation>
-            <h3>Удалить пользователя?</h3>
-            <p>Удалить учётную запись <strong>@deleteTarget?.Login</strong>?</p>
-            <p class="hint">Действие необратимо.</p>
-            @if (!string.IsNullOrEmpty(deleteError))
+            <h3>Доступ — @accessTarget.Login</h3>
+            <label class="dept-line">
+                <input type="checkbox" @bind="accessIsAdmin" /> Администратор (доступ ко всем преподавателям)
+            </label>
+            @if (!accessIsAdmin)
             {
-                <div class="error">@deleteError</div>
+                <div class="field">
+                    <label>Кафедра</label>
+                    <select class="control" value="@accessDeptId" @onchange="OnAccessDeptChanged">
+                        <option value="0">— выберите —</option>
+                        @foreach (var d in departments)
+                        {
+                            <option value="@d.Id">@d.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Преподаватель</label>
+                    <select class="control" @bind="accessTeacherId" disabled="@(accessDeptId == 0)">
+                        <option value="0">— выберите —</option>
+                        @foreach (var t in FreeTeachers(accessDeptId, accessTarget.Id))
+                        {
+                            <option value="@t.Id">@t.FullName</option>
+                        }
+                    </select>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(accessError))
+            {
+                <div class="error">@accessError</div>
             }
             <div class="modal-actions">
-                <button class="btn" @onclick="() => showDelete = false">Отмена</button>
-                <button class="btn danger" @onclick="ConfirmDelete">Удалить</button>
+                <button class="btn" @onclick="CloseAccess">Отмена</button>
+                <button class="btn primary" @onclick="SaveAccess">Сохранить</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (deleteUser != null)
+{
+    <div class="modal-backdrop" @onclick="() => deleteUser = null">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>Удалить пользователя?</h3>
+            <p>Удалить учётную запись <strong>@deleteUser.Login</strong>?</p>
+            <p class="hint">Показатели преподавателя при этом сохраняются. Действие необратимо.</p>
+            @if (!string.IsNullOrEmpty(userError))
+            {
+                <div class="error">@userError</div>
+            }
+            <div class="modal-actions">
+                <button class="btn" @onclick="() => deleteUser = null">Отмена</button>
+                <button class="btn danger" @onclick="ConfirmDeleteUser">Удалить</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showTeacherForm)
+{
+    <div class="modal-backdrop" @onclick="() => showTeacherForm = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>@(editTeacherId == 0 ? "Новый преподаватель" : "Изменить преподавателя")</h3>
+            <div class="field">
+                <label>Фамилия И.О.</label>
+                <input class="control" @bind="teacherName" placeholder="Иванов И. И." />
+            </div>
+            <div class="field">
+                <label>Кафедра</label>
+                <select class="control" @bind="teacherDeptId">
+                    <option value="0">— выберите —</option>
+                    @foreach (var d in departments)
+                    {
+                        <option value="@d.Id">@d.Name</option>
+                    }
+                </select>
+            </div>
+            @if (!string.IsNullOrEmpty(teacherError))
+            {
+                <div class="error">@teacherError</div>
+            }
+            <div class="modal-actions">
+                <button class="btn" @onclick="() => showTeacherForm = false">Отмена</button>
+                <button class="btn primary" @onclick="SaveTeacher">Сохранить</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (deleteTeacher != null)
+{
+    <div class="modal-backdrop" @onclick="() => deleteTeacher = null">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>Удалить преподавателя?</h3>
+            <p>
+                Удалить <strong>@deleteTeacher.FullName</strong>
+                @(deleteTeacher.Department == null ? "" : $" (кафедра «{deleteTeacher.Department.Name}»)")?
+            </p>
+            @if (deleteTeacherEntries > 0)
+            {
+                <div class="hint-box">
+                    Вместе с преподавателем будут безвозвратно удалены все внесённые им работы
+                    (@deleteTeacherEntries шт.) за все периоды и прикреплённые к ним файлы.
+                </div>
+            }
+            @if (linkedAccounts.TryGetValue(deleteTeacher.Id, out var linked))
+            {
+                <div class="hint-box">
+                    Учётная запись «@linked» останется, но потеряет привязку — назначьте ей другого преподавателя.
+                </div>
+            }
+            <p class="hint">Действие необратимо.</p>
+            @if (!string.IsNullOrEmpty(teacherError))
+            {
+                <div class="error">@teacherError</div>
+            }
+            <div class="modal-actions">
+                <button class="btn" @onclick="() => deleteTeacher = null">Отмена</button>
+                <button class="btn danger" disabled="@deleting" @onclick="ConfirmDeleteTeacher">
+                    @(deleting ? "Удаляю…" : "Удалить")
+                </button>
             </div>
         </div>
     </div>
@@ -99,22 +327,27 @@
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    private enum Tab { Users, Teachers }
+    private Tab tab = Tab.Users;
+
     private List<AppUser> users = new();
+    private List<Teacher> teachers = new();
+    private List<Department> departments = new();
+    private Dictionary<int, string> linkedAccounts = new();
 
-    private bool showCreate;
-    private string newLogin = "";
-    private string? newName;
-    private string newPassword = "";
-    private bool newIsAdmin;
-    private string? createError;
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        departments = await db.Departments.OrderBy(d => d.Name).ToListAsync();
+        await Reload();
+    }
 
-    private bool showDelete;
-    private AppUser? deleteTarget;
-    private string? deleteError;
-
-    protected override async Task OnInitializedAsync() => await Reload();
-
-    private async Task Reload() => users = await UserSvc.ListAsync();
+    private async Task Reload()
+    {
+        users = await UserSvc.ListAsync();
+        teachers = await TeacherSvc.ListAsync();
+        linkedAccounts = await TeacherSvc.LinkedAccountsAsync();
+    }
 
     private async Task<string> CurrentUser()
     {
@@ -123,49 +356,237 @@
         return s.User.Identity?.Name ?? "—";
     }
 
-    private void OpenCreate()
+    /// <summary>Преподаватели кафедры, у которых ещё нет учётной записи (кроме своей).</summary>
+    private IEnumerable<Teacher> FreeTeachers(int deptId, int? forUserId)
     {
-        newLogin = ""; newName = null; newPassword = ""; newIsAdmin = false; createError = null;
-        showCreate = true;
+        var ownTeacherId = forUserId is int uid
+            ? users.FirstOrDefault(u => u.Id == uid)?.TeacherId
+            : null;
+
+        return teachers
+            .Where(t => t.DepartmentId == deptId)
+            .Where(t => !linkedAccounts.ContainsKey(t.Id) || t.Id == ownTeacherId);
+    }
+
+    // ---- учётные записи ----
+    private bool showCreateUser;
+    private string newLogin = "";
+    private string? newName;
+    private string newPassword = "";
+    private bool newIsAdmin;
+    private int newDeptId;
+    private int newTeacherId;
+    private string newTeacherFullName = "";
+    private string? userError;
+
+    private void OpenCreateUser()
+    {
+        newLogin = ""; newName = null; newPassword = "";
+        newIsAdmin = false; newDeptId = 0; newTeacherId = 0; newTeacherFullName = "";
+        userError = null;
+        showCreateUser = true;
+    }
+
+    private void OnNewDeptChanged(ChangeEventArgs e)
+    {
+        newDeptId = int.Parse(e.Value?.ToString() ?? "0");
+        newTeacherId = 0;
     }
 
     private async Task CreateUser()
     {
-        createError = null;
-        var (ok, error) = await UserSvc.CreateAsync(newLogin, newName, newPassword, newIsAdmin);
-        if (!ok) { createError = error; return; }
-        Audit.Log(await CurrentUser(), $"Создан пользователь «{newLogin.Trim()}»{(newIsAdmin ? " (администратор)" : "")}");
-        showCreate = false;
-        await Reload();
-    }
+        userError = null;
 
-    private void OpenDelete(AppUser u)
-    {
-        deleteTarget = u;
-        deleteError = null;
-        showDelete = true;
-    }
+        int? teacherId = null;
+        string? boundName = null;
+        int? createdTeacherId = null; // чтобы откатить, если учётка не создастся
 
-    private async Task ConfirmDelete()
-    {
-        if (deleteTarget == null) return;
-        deleteError = null;
+        if (!newIsAdmin)
+        {
+            if (newTeacherId != 0)
+            {
+                teacherId = newTeacherId;
+                boundName = teachers.FirstOrDefault(t => t.Id == newTeacherId)?.FullName;
+            }
+            else
+            {
+                // преподаватель не выбран — заводим его вместе с учётной записью
+                var fullName = string.IsNullOrWhiteSpace(newTeacherFullName) ? newName : newTeacherFullName;
+                if (string.IsNullOrWhiteSpace(fullName))
+                {
+                    userError = "Укажите ФИО преподавателя (или заполните поле «Имя»).";
+                    return;
+                }
+
+                var (tok, terror, created) = await TeacherSvc.CreateAsync(fullName!, newDeptId);
+                if (!tok) { userError = terror; return; }
+
+                teacherId = created!.Id;
+                createdTeacherId = created.Id;
+                boundName = created.FullName;
+            }
+        }
+
+        var (ok, error) = await UserSvc.CreateAsync(newLogin, newName, newPassword, newIsAdmin, teacherId);
+        if (!ok)
+        {
+            // учётка не создалась — не оставляем «осиротевшего» преподавателя
+            if (createdTeacherId is int orphan) await TeacherSvc.DeleteAsync(orphan);
+            userError = error;
+            return;
+        }
 
         var me = await CurrentUser();
-        if (string.Equals(deleteTarget.Login, me, StringComparison.OrdinalIgnoreCase))
+        if (createdTeacherId != null)
+            Audit.Log(me, $"Добавлен преподаватель «{boundName}» (вместе с учётной записью)");
+        Audit.Log(me,
+            $"Создан пользователь «{newLogin.Trim()}»{(newIsAdmin ? " (администратор)" : $" → «{boundName}»")}");
+
+        showCreateUser = false;
+        await Reload();
+    }
+
+    private AppUser? deleteUser;
+
+    private void OpenDeleteUser(AppUser u)
+    {
+        deleteUser = u;
+        userError = null;
+    }
+
+    private async Task ConfirmDeleteUser()
+    {
+        if (deleteUser == null) return;
+        userError = null;
+
+        var me = await CurrentUser();
+        if (string.Equals(deleteUser.Login, me, StringComparison.OrdinalIgnoreCase))
         {
-            deleteError = "Нельзя удалить самого себя.";
+            userError = "Нельзя удалить самого себя.";
             return;
         }
-        if (deleteTarget.IsAdmin && await UserSvc.CountAdminsAsync() <= 1)
+        if (deleteUser.IsAdmin && await UserSvc.CountAdminsAsync() <= 1)
         {
-            deleteError = "Нельзя удалить последнего администратора.";
+            userError = "Нельзя удалить последнего администратора.";
             return;
         }
 
-        await UserSvc.DeleteAsync(deleteTarget.Id);
-        Audit.Log(me, $"Удалён пользователь «{deleteTarget.Login}»");
-        showDelete = false;
+        await UserSvc.DeleteAsync(deleteUser.Id);
+        Audit.Log(me, $"Удалён пользователь «{deleteUser.Login}»");
+        deleteUser = null;
         await Reload();
+    }
+
+    // ---- доступ (привязка учётной записи) ----
+    private AppUser? accessTarget;
+    private bool accessIsAdmin;
+    private int accessDeptId;
+    private int accessTeacherId;
+    private string? accessError;
+
+    private void OpenAccess(AppUser u)
+    {
+        accessTarget = u;
+        accessIsAdmin = u.IsAdmin;
+        accessTeacherId = u.TeacherId ?? 0;
+        accessDeptId = u.Teacher?.DepartmentId ?? 0;
+        accessError = null;
+    }
+
+    private void CloseAccess() => accessTarget = null;
+
+    private void OnAccessDeptChanged(ChangeEventArgs e)
+    {
+        accessDeptId = int.Parse(e.Value?.ToString() ?? "0");
+        accessTeacherId = 0;
+    }
+
+    private async Task SaveAccess()
+    {
+        if (accessTarget == null) return;
+        accessError = null;
+        int? teacherId = accessIsAdmin || accessTeacherId == 0 ? null : accessTeacherId;
+
+        var (ok, error) = await UserSvc.UpdateAccessAsync(accessTarget.Id, accessIsAdmin, teacherId);
+        if (!ok) { accessError = error; return; }
+
+        var bound = teacherId is int tid ? teachers.FirstOrDefault(t => t.Id == tid)?.FullName : "все";
+        Audit.Log(await CurrentUser(),
+            $"Изменён доступ «{accessTarget.Login}»: {(accessIsAdmin ? "администратор" : "пользователь")}, преподаватель — {bound}");
+        accessTarget = null;
+        await Reload();
+    }
+
+    // ---- преподаватели ----
+    private bool showTeacherForm;
+    private int editTeacherId;
+    private string teacherName = "";
+    private int teacherDeptId;
+    private string? teacherError;
+
+    private void OpenCreateTeacher()
+    {
+        editTeacherId = 0; teacherName = ""; teacherDeptId = 0; teacherError = null;
+        showTeacherForm = true;
+    }
+
+    private void OpenEditTeacher(Teacher t)
+    {
+        editTeacherId = t.Id; teacherName = t.FullName; teacherDeptId = t.DepartmentId; teacherError = null;
+        showTeacherForm = true;
+    }
+
+    private async Task SaveTeacher()
+    {
+        teacherError = null;
+        if (editTeacherId == 0)
+        {
+            var (ok, error, t) = await TeacherSvc.CreateAsync(teacherName, teacherDeptId);
+            if (!ok) { teacherError = error; return; }
+            Audit.Log(await CurrentUser(), $"Добавлен преподаватель «{t!.FullName}»");
+        }
+        else
+        {
+            var (ok, error) = await TeacherSvc.UpdateAsync(editTeacherId, teacherName, teacherDeptId);
+            if (!ok) { teacherError = error; return; }
+            Audit.Log(await CurrentUser(), $"Изменён преподаватель «{teacherName.Trim()}»");
+        }
+        showTeacherForm = false;
+        await Reload();
+    }
+
+    private Teacher? deleteTeacher;
+    private int deleteTeacherEntries;
+    private bool deleting;
+
+    private async Task OpenDeleteTeacher(Teacher t)
+    {
+        deleteTeacher = t;
+        teacherError = null;
+        deleteTeacherEntries = await TeacherSvc.EntryCountAsync(t.Id);
+    }
+
+    private async Task ConfirmDeleteTeacher()
+    {
+        if (deleteTeacher == null) return;
+        deleting = true;
+        teacherError = null;
+        try
+        {
+            var (ok, error) = await TeacherSvc.DeleteAsync(deleteTeacher.Id);
+            if (!ok) { teacherError = error; return; }
+            Audit.Log(await CurrentUser(),
+                $"Удалён преподаватель «{deleteTeacher.FullName}» (записей: {deleteTeacherEntries})");
+            deleteTeacher = null;
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            teacherError = "Не удалось удалить: " + ex.Message;
+        }
+        finally
+        {
+            deleting = false;
+        }
     }
 }

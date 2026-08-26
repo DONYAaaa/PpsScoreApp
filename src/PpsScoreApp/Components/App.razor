@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
-    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="app.css?v=@AssetVersion" />
     <link rel="icon" href="data:," />
     <title>Учёт баллов ППС</title>
     <HeadOutlet />
@@ -14,7 +14,14 @@
 <body>
     <Routes />
     <script src="_framework/blazor.web.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=@AssetVersion"></script>
 </body>
 
 </html>
+
+@code {
+    // Идентификатор модуля меняется при каждой компиляции, поэтому после
+    // выкладки браузер гарантированно берёт свежие app.css / app.js, а не из кеша.
+    private static readonly string AssetVersion =
+        typeof(Program).Assembly.ManifestModule.ModuleVersionId.ToString("N")[..8];
+}

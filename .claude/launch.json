@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pps",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "src/PpsScoreApp",
+        "--no-launch-profile",
+        "--urls",
+        "http://localhost:5242"
+      ],
+      "port": 5242
+    }
+  ]
+}

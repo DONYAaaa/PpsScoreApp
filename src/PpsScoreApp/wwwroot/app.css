@@ -23,7 +23,13 @@ body {
     font-size: 14px;
 }
 
-.app-shell { min-height: 100vh; }
+/* Оболочка ровно в высоту экрана: страница сама по себе не прокручивается,
+   прокрутка живёт внутри .app-main (обычные страницы) или .sheet-scroll (таблица ввода). */
+.app-shell {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
 
 .app-header {
     display: flex;
@@ -33,6 +39,7 @@ body {
     color: #fff;
     padding: 0 24px;
     height: 56px;
+    flex: 0 0 auto;
     box-shadow: var(--shadow);
 }
 
@@ -51,7 +58,29 @@ body {
 .app-header nav a:hover { background: rgba(255, 255, 255, .12); color: #fff; }
 .app-header nav a.active { background: rgba(255, 255, 255, .2); color: #fff; }
 
-.app-main { max-width: 1180px; margin: 0 auto; padding: 24px; }
+/* Скролл-контейнер обычных страниц. Полоса прокрутки — у края окна,
+   ограничение ширины перенесено внутрь, в .page-wrap. */
+.app-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.page-wrap {
+    width: 100%;
+    max-width: 1520px;
+    margin: 0 auto;
+    padding: 24px;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* по умолчанию содержимое страниц не сжимается — переполнение уходит в скролл .app-main */
+.page-wrap > * { flex: 0 0 auto; }
 
 h1 { font-size: 22px; margin: 0 0 18px; }
 h2 { font-size: 18px; margin: 0 0 12px; }
@@ -358,13 +387,28 @@ textarea.control { min-width: 320px; resize: vertical; }
 
 /* ===== Итерация: закрепление шапки, кнопки очистки, «?», файл ===== */
 
+/* Страница ввода — колонка во всю высоту рабочей области.
+   Высота таблицы не задаётся константой: её считает flex, поэтому второй
+   (внешней) полосы прокрутки не возникает. */
+.page-wrap > .sheet-page {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.sheet-page > * { flex: 0 0 auto; }
+
 /* прокручиваемая область таблицы: шапка и заголовок раздела остаются видимыми */
 .sheet-scroll {
     overflow: auto;
-    max-height: calc(100vh - 320px);
-    min-height: 260px;
     border: 1px solid var(--line);
     border-radius: 10px;
+}
+.sheet-page > .sheet-scroll {
+    flex: 1 1 auto;
+    /* нижний предел — чтобы на низком экране таблица не схлопнулась;
+       если места меньше, прокрутка появится у .app-main */
+    min-height: 180px;
 }
 .grid.sheet {
     margin: 0;
@@ -422,6 +466,123 @@ textarea.control { min-width: 320px; resize: vertical; }
     white-space: nowrap;
     font-size: 12px;
 }
+
+/* ---- вкладки (страница «Пользователи») ---- */
+.tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 18px;
+}
+.tab {
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    padding: 9px 18px;
+    border-radius: 8px 8px 0 0;
+    font: inherit;
+    font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    margin-bottom: -1px;
+}
+.tab:hover { color: var(--text); background: #f1f5f9; }
+.tab.active {
+    background: var(--panel);
+    border-color: var(--line);
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* неактивное поле-заглушка вместо select (обычный пользователь) */
+.control-static {
+    background: #f8fafc;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    font-weight: 500;
+}
+
+.warn-text { color: #b45309; font-weight: 600; }
+
+/* ---- комментарий: превью в ячейке + редактор в модальном окне ---- */
+
+/* Ширина колонки жёстко ограничена: у превью с -webkit-box минимальная ширина
+   равна максимальной, и без max-width колонка распирает таблицу, выдавливая «Файл». */
+.grid.sheet th.col-comment { width: 240px; }
+.grid.sheet td.comment-cell {
+    width: 240px;
+    max-width: 240px;
+    text-align: left;
+    padding: 4px 6px;
+}
+
+/* Кликается вся ячейка, но в покое кнопка невидима — в таблице это просто текст. */
+.comment-view {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    padding: 5px 7px;
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+}
+.comment-view:hover { background: #f1f5f9; border-color: var(--line); }
+.comment-view:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
+
+/* две строки текста, дальше — многоточие */
+.comment-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 12.5px;
+    line-height: 1.4;
+    text-align: left;
+    color: #334155;
+    overflow-wrap: anywhere;
+}
+
+/* карандаш: у заполненной строки — приглушённый справа, у пустой — один по центру */
+.comment-pen {
+    flex: 0 0 auto;
+    font-size: 13px;
+    line-height: 1;
+    color: #cbd5e1;
+}
+.comment-view:hover .comment-pen { color: var(--primary); }
+.comment-view.empty { justify-content: center; }
+
+/* окно редактирования */
+.modal.comment-modal { width: 720px; }  /* перебивает .modal.wide */
+.comment-modal-subtitle { color: var(--muted); font-size: 13px; margin-top: -6px; }
+.comment-editor {
+    width: 100%;
+    min-width: 0;
+    resize: vertical;
+    line-height: 1.5;
+    font-family: inherit;
+    min-height: 240px;
+}
+.comment-modal-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: -6px;
+}
+.comment-warn { color: #b45309; }
+.comment-counter { margin-left: auto; font-variant-numeric: tabular-nums; }
+.comment-counter.near-limit { color: var(--danger); font-weight: 600; }
+.comment-keyhint { margin-right: auto; font-size: 12px; color: var(--muted); }
 
 /* ---- статусы заполнения в отчётах ---- */
 .status-legend {

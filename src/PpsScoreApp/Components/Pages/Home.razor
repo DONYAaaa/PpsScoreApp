@@ -4,10 +4,14 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject FileStorageService Storage
 @inject CompletionService Completion
+@inject UserService UserSvc
 @inject AuditLogger Audit
 @inject NavigationManager Nav
 
 <PageTitle>Ввод показателей</PageTitle>
+
+@* .sheet-page — колонка на всю высоту рабочей области: прокручивается только таблица *@
+<div class="sheet-page">
 
 <h1>Индивидуальные показатели работы преподавателя</h1>
 
@@ -24,7 +28,8 @@
 <div class="toolbar">
     <div class="field">
         <label>Преподаватель</label>
-        <div class="row">
+        @if (isAdmin)
+        {
             <select class="control" value="@selectedTeacherId" @onchange="OnTeacherChanged">
                 <option value="0">— выберите —</option>
                 @foreach (var d in departments)
@@ -37,10 +42,11 @@
                     </optgroup>
                 }
             </select>
-            <button class="btn" @onclick="() => showAddTeacher = true">+ Преподаватель</button>
-            <button class="btn danger" disabled="@(selectedTeacherId == 0)"
-                    @onclick="OpenDeleteTeacher" title="Удалить выбранного преподавателя">Удалить</button>
-        </div>
+        }
+        else
+        {
+            <div class="control control-static" title="@myDepartmentName">@TeacherName()</div>
+        }
     </div>
 
     <div class="field">
@@ -77,68 +83,6 @@
     </div>
 </div>
 
-@if (showAddTeacher)
-{
-    <div class="modal-backdrop" @onclick="() => showAddTeacher = false">
-        <div class="modal" @onclick:stopPropagation>
-            <h3>Новый преподаватель</h3>
-            <div class="field">
-                <label>Фамилия И.О.</label>
-                <input class="control" @bind="newTeacherName" placeholder="Иванов И. И." />
-            </div>
-            <div class="field">
-                <label>Кафедра</label>
-                <select class="control" @bind="newTeacherDeptId">
-                    <option value="0">— выберите —</option>
-                    @foreach (var d in departments)
-                    {
-                        <option value="@d.Id">@d.Name</option>
-                    }
-                </select>
-            </div>
-            @if (!string.IsNullOrEmpty(teacherError))
-            {
-                <div class="error">@teacherError</div>
-            }
-            <div class="modal-actions">
-                <button class="btn" @onclick="() => showAddTeacher = false">Отмена</button>
-                <button class="btn primary" @onclick="AddTeacher">Сохранить</button>
-            </div>
-        </div>
-    </div>
-}
-
-@if (showDeleteTeacher)
-{
-    <div class="modal-backdrop" @onclick="() => showDeleteTeacher = false">
-        <div class="modal" @onclick:stopPropagation>
-            <h3>Удалить преподавателя?</h3>
-            <p>
-                Вы действительно хотите удалить преподавателя
-                <strong>@deleteTeacherName</strong>@(string.IsNullOrEmpty(deleteTeacherDept) ? "" : $" (кафедра «{deleteTeacherDept}»)")?
-            </p>
-            @if (deleteEntryCount > 0)
-            {
-                <div class="hint-box">
-                    Вместе с преподавателем будут безвозвратно удалены все внесённые им работы
-                    (@deleteEntryCount шт.) за все периоды и прикреплённые к ним файлы.
-                </div>
-            }
-            <p class="hint">Действие необратимо.</p>
-            @if (!string.IsNullOrEmpty(deleteError))
-            {
-                <div class="error">@deleteError</div>
-            }
-            <div class="modal-actions">
-                <button class="btn" @onclick="() => showDeleteTeacher = false">Отмена</button>
-                <button class="btn danger" disabled="@deleting" @onclick="ConfirmDeleteTeacher">
-                    @(deleting ? "Удаляю…" : "Удалить")
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
 @if (showClearConfirm)
 {
     <div class="modal-backdrop" @onclick="() => showClearConfirm = false">
@@ -163,6 +107,35 @@
     </div>
 }
 
+@if (commentRow != null)
+{
+    <div class="modal-backdrop" @onclick="CloseComment">
+        <div class="modal wide comment-modal" @onclick:stopPropagation>
+            <h3>Комментарий — п. @commentRow.Wt.FullNumber</h3>
+            <div class="comment-modal-subtitle">@commentRow.Wt.Title</div>
+            <textarea class="control comment-editor" rows="14" maxlength="2000"
+                      @ref="commentEditor"
+                      @bind="commentDraft" @bind:event="oninput"
+                      @onkeydown="OnCommentKeyDown"
+                      placeholder="Перечислите работы: по одной в строке."></textarea>
+            <div class="comment-modal-foot">
+                @if (commentRow.Value == 0)
+                {
+                    <span class="comment-warn">Комментарий сохранится только вместе с баллом в колонке «Заполнение».</span>
+                }
+                <span class="comment-counter @(commentDraft.Length > 1900 ? "near-limit" : "")">
+                    @commentDraft.Length / 2000
+                </span>
+            </div>
+            <div class="modal-actions">
+                <span class="comment-keyhint">Ctrl+Enter — сохранить, Esc — закрыть</span>
+                <button class="btn" @onclick="CloseComment">Отмена</button>
+                <button class="btn primary" @onclick="SaveComment">Сохранить</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (infoText != null)
 {
     <div class="modal-backdrop" @onclick="() => infoText = null">
@@ -176,7 +149,14 @@
     </div>
 }
 
-@if (selectedTeacherId == 0)
+@if (!isAdmin && myTeacherId is null)
+{
+    <div class="hint-box">
+        Учётная запись не привязана к преподавателю, поэтому вносить показатели нельзя.
+        Обратитесь к администратору — привязка настраивается на вкладке «Пользователи».
+    </div>
+}
+else if (selectedTeacherId == 0)
 {
     <p class="hint">Выберите преподавателя, чтобы заполнить показатели за выбранный период.</p>
 }
@@ -227,9 +207,9 @@ else
                 <th style="width:54px">№</th>
                 <th>Вид работы</th>
                 <th style="width:90px">Баллы</th>
-                <th style="width:210px">Заполнение</th>
+                <th style="width:130px">Заполнение</th>
                 <th style="width:70px">Балл</th>
-                <th style="width:230px">Комментарий</th>
+                <th class="col-comment">Комментарий</th>
                 <th style="width:180px">Файл</th>
             </tr>
         </thead>
@@ -269,16 +249,23 @@ else
                                    @bind="row.Value" @bind:after="() => AutoSaveRow(row)" />
                         </td>
                         <td class="num">@RowPoints(row).ToString("0.##")</td>
-                        <td>
-                            <input class="control comment-input"
-                                   @bind="row.Comment" @bind:after="() => AutoSaveRow(row)" />
+                        <td class="comment-cell">
+                            <button type="button" class="comment-view @(string.IsNullOrWhiteSpace(row.Comment) ? "empty" : "")"
+                                    @onclick="() => OpenComment(row)"
+                                    title="@(string.IsNullOrWhiteSpace(row.Comment) ? "Добавить комментарий" : row.Comment)">
+                                @if (!string.IsNullOrWhiteSpace(row.Comment))
+                                {
+                                    <span class="comment-preview">@row.Comment</span>
+                                }
+                                <span class="comment-pen" aria-hidden="true">✎</span>
+                            </button>
                         </td>
                         <td class="file-cell">
                             <div class="file-box">
                                 @foreach (var f in row.Files)
                                 {
                                     <div class="file-item">
-                                        <a class="file-link" href="/files/@f.Id" target="_blank" title="@f.Name">📎 @f.Name</a>
+                                        <a class="file-link" href="/workfiles/@f.Id" target="_blank" title="@f.Name">📎 @f.Name</a>
                                         <button type="button" class="file-x" title="Удалить файл"
                                                 @onclick="() => RemoveFile(row, f.Id)">×</button>
                                     </div>
@@ -298,6 +285,8 @@ else
     </div>
 }
 
+</div>
+
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -314,6 +303,12 @@ else
     private List<Row> rows = new();
 
     private int selectedTeacherId;
+
+    // права текущей учётной записи (берутся из БД при загрузке — см. UserService.GetByLoginAsync)
+    private bool isAdmin;
+    private int? myTeacherId;
+    private string? myDepartmentName;
+
     private List<string> years = Periods.List();
     private string academicYear = Periods.CurrentAcademicYear();
     private int semester = 2;
@@ -333,6 +328,50 @@ else
         Audit.Log(await CurrentUser(),
             $"{(isCompleted ? "Отмечено «Заполнено»" : "Снята отметка «Заполнено»")} — «{TeacherName()}», {academicYear}, {semester} сем.");
         saveMessage = isCompleted ? "Отмечено как заполнено" : "Отметка снята";
+    }
+
+    // ---- редактор комментария (модальное окно) ----
+    // В ячейке таблицы комментарии не помещаются (реальные — до ~500 символов,
+    // с перечнями и ссылками), поэтому правка вынесена в отдельное окно.
+    private Row? commentRow;
+    private string commentDraft = "";
+    private ElementReference commentEditor;
+    private bool focusCommentEditor;
+
+    private void OpenComment(Row row)
+    {
+        commentRow = row;
+        commentDraft = row.Comment ?? "";
+        focusCommentEditor = true;
+    }
+
+    private void CloseComment()
+    {
+        commentRow = null;
+        commentDraft = "";
+    }
+
+    private async Task SaveComment()
+    {
+        if (commentRow is not Row row) return;
+        row.Comment = string.IsNullOrWhiteSpace(commentDraft) ? null : commentDraft.Trim();
+        CloseComment();
+        await AutoSaveRow(row);
+    }
+
+    private async Task OnCommentKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseComment();
+        else if (e.Key == "Enter" && e.CtrlKey) await SaveComment();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusCommentEditor)
+        {
+            focusCommentEditor = false;
+            await commentEditor.FocusAsync();
+        }
     }
 
     // окно-инструкция
@@ -362,20 +401,6 @@ else
         await AutoSaveRow(row);
     }
 
-    // добавление преподавателя
-    private bool showAddTeacher;
-    private string newTeacherName = "";
-    private int newTeacherDeptId;
-    private string? teacherError;
-
-    // удаление преподавателя
-    private bool showDeleteTeacher;
-    private bool deleting;
-    private string? deleteTeacherName;
-    private string? deleteTeacherDept;
-    private int deleteEntryCount;
-    private string? deleteError;
-
     /// <summary>Состояние одной строки таблицы (один вид работы).</summary>
     private class Row
     {
@@ -397,10 +422,25 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        var me = await UserSvc.GetByLoginAsync(await CurrentUser());
+        isAdmin = me?.IsAdmin ?? false;
+        myTeacherId = me?.TeacherId;
+        myDepartmentName = me?.Teacher?.Department?.Name;
+
         await using var db = await DbFactory.CreateDbContextAsync();
         departments = await db.Departments.OrderBy(d => d.Name).ToListAsync();
-        teachers = await db.Teachers.OrderBy(t => t.FullName).ToListAsync();
         workTypes = await db.WorkTypes.Include(w => w.Options).ToListAsync();
+
+        // обычный пользователь видит только своего преподавателя
+        teachers = isAdmin
+            ? await db.Teachers.OrderBy(t => t.FullName).ToListAsync()
+            : await db.Teachers.Where(t => t.Id == myTeacherId).ToListAsync();
+
+        if (!isAdmin && myTeacherId is int mine)
+        {
+            selectedTeacherId = mine;
+            await LoadRows();
+        }
     }
 
     private async Task LoadRows()
@@ -443,6 +483,7 @@ else
 
     private async Task OnTeacherChanged(ChangeEventArgs e)
     {
+        if (!isAdmin) return; // обычный пользователь преподавателя не меняет
         selectedTeacherId = int.Parse(e.Value?.ToString() ?? "0");
         await LoadRows();
     }
@@ -690,86 +731,6 @@ else
     }
 
     private string TeacherName() => teachers.FirstOrDefault(t => t.Id == selectedTeacherId)?.FullName ?? "";
-
-    // ---- преподаватели ----
-    private async Task AddTeacher()
-    {
-        teacherError = null;
-        if (string.IsNullOrWhiteSpace(newTeacherName)) { teacherError = "Укажите ФИО."; return; }
-        if (newTeacherDeptId == 0) { teacherError = "Выберите кафедру."; return; }
-
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var t = new Teacher { FullName = newTeacherName.Trim(), DepartmentId = newTeacherDeptId };
-        db.Teachers.Add(t);
-        await db.SaveChangesAsync();
-        Audit.Log(await CurrentUser(), $"Добавлен преподаватель «{t.FullName}»");
-
-        teachers.Add(t);
-        teachers = teachers.OrderBy(x => x.FullName).ToList();
-        selectedTeacherId = t.Id;
-        newTeacherName = "";
-        newTeacherDeptId = 0;
-        showAddTeacher = false;
-        await LoadRows();
-    }
-
-    private async Task OpenDeleteTeacher()
-    {
-        if (selectedTeacherId == 0) return;
-        deleteError = null;
-        var t = teachers.FirstOrDefault(x => x.Id == selectedTeacherId);
-        deleteTeacherName = t?.FullName;
-        deleteTeacherDept = departments.FirstOrDefault(d => d.Id == t?.DepartmentId)?.Name;
-
-        await using var db = await DbFactory.CreateDbContextAsync();
-        deleteEntryCount = await db.WorkEntries.CountAsync(e => e.TeacherId == selectedTeacherId);
-
-        showDeleteTeacher = true;
-    }
-
-    private async Task ConfirmDeleteTeacher()
-    {
-        if (selectedTeacherId == 0) return;
-        deleting = true;
-        deleteError = null;
-        try
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-
-            var stored = await db.WorkEntries
-                .Where(e => e.TeacherId == selectedTeacherId && e.StoredFileName != null)
-                .Select(e => e.StoredFileName!)
-                .ToListAsync();
-            foreach (var f in stored) Storage.Delete(f);
-
-            var storedMulti = await db.WorkFiles
-                .Where(f => f.WorkEntry!.TeacherId == selectedTeacherId)
-                .Select(f => f.StoredFileName)
-                .ToListAsync();
-            foreach (var f in storedMulti) Storage.Delete(f);
-
-            var teacher = await db.Teachers.FindAsync(selectedTeacherId);
-            if (teacher != null)
-            {
-                db.Teachers.Remove(teacher);
-                await db.SaveChangesAsync();
-            }
-
-            teachers.RemoveAll(x => x.Id == selectedTeacherId);
-            selectedTeacherId = 0;
-            rows = new();
-            showDeleteTeacher = false;
-            Audit.Log(await CurrentUser(), $"Удалён преподаватель «{deleteTeacherName}» (записей: {deleteEntryCount})");
-        }
-        catch (Exception ex)
-        {
-            deleteError = "Не удалось удалить: " + ex.Message;
-        }
-        finally
-        {
-            deleting = false;
-        }
-    }
 
     private void GoToReport()
     {

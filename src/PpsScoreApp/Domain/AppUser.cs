@@ -21,6 +21,13 @@ public class AppUser
 
     public bool IsActive { get; set; } = true;
 
+    /// <summary>
+    /// Преподаватель, показатели которого правит эта учётная запись.
+    /// У администратора — null (доступны все преподаватели).
+    /// </summary>
+    public int? TeacherId { get; set; }
+    public Teacher? Teacher { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public string Name => string.IsNullOrWhiteSpace(DisplayName) ? Login : DisplayName!;
