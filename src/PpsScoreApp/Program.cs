@@ -21,7 +21,8 @@ builder.Services.AddRazorComponents()
 
 // EF Core (фабрика контекстов — безопасно для Blazor Server)
 var conn = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContextFactory<AppDbContext>(o => o.UseSqlServer(conn));
+builder.Services.AddDbContextFactory<AppDbContext>(o =>
+    o.UseSqlServer(conn, sql => sql.UseCompatibilityLevel(120)));
 
 // Авторизация (cookie, без ASP.NET Core Identity)
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
