@@ -313,6 +313,11 @@ FROM [WorkEntries] WHERE [StoredFileName] IS NOT NULL;
 - **Word** (`WordExportService`): на каждого преподавателя — пояснения по пунктам.
 - **ZIP** (`ExportBundleService.BuildAsync`): общий Excel + на каждого преподавателя папка
   `{ФИО}/Пояснения_{ФИО}.docx` и `{ФИО}/Приложения/<файлы>` (из `WorkFiles` за период).
+- **Имя файла доказательной базы** — по инструкции «Номер пункта_Порядковый номер.\*»
+  (напр. `2.4_1.pdf`), формируется в `WorkFileNaming.Build`. Одно и то же имя используется
+  в ZIP, при скачивании через `/workfiles/{id}` и в подписи файла на экране ввода;
+  исходное имя остаётся в БД (`OriginalFileName`) и видно в подсказке. Нумерация —
+  по порядку файлов внутри пункта.
 - Отдача файлов пользователю — эндпоинт `/workfiles/{id}` (id = `WorkFile.Id`),
   `.RequireAuthorization()`. Легаси `/files/{id}` (id = `WorkEntry.Id`) — см. п. 4.9.
 - ZIP уходит в браузер через JS-функцию `window.downloadFile` из `wwwroot/app.js`

@@ -116,15 +116,28 @@ app.MapGet("/files/{id:int}", async (int id, IDbContextFactory<AppDbContext> f, 
     return Results.File(bytes, "application/octet-stream", entry.OriginalFileName ?? entry.StoredFileName);
 }).RequireAuthorization();
 
-// Скачивание файлов-приложений (несколько на вид работы)
+// Скачивание файлов-приложений (несколько на вид работы).
+// Отдаётся под именем доказательной базы «Номер пункта_Порядковый номер.*» — тем же,
+// что попадёт в ZIP, чтобы у преподавателя и в отчёте файл назывался одинаково.
 app.MapGet("/workfiles/{id:int}", async (int id, IDbContextFactory<AppDbContext> f, FileStorageService storage) =>
 {
     await using var db = await f.CreateDbContextAsync();
-    var wf = await db.WorkFiles.FindAsync(id);
+    var wf = await db.WorkFiles
+        .Include(x => x.WorkEntry).ThenInclude(e => e!.WorkType)
+        .FirstOrDefaultAsync(x => x.Id == id);
     if (wf == null) return Results.NotFound();
+
     var bytes = await storage.ReadAsync(wf.StoredFileName);
     if (bytes == null) return Results.NotFound();
-    return Results.File(bytes, "application/octet-stream", wf.OriginalFileName ?? wf.StoredFileName);
+
+    var name = wf.OriginalFileName ?? wf.StoredFileName;
+    if (wf.WorkEntry?.WorkType is { } wt)
+    {
+        var index = await db.WorkFiles
+            .CountAsync(x => x.WorkEntryId == wf.WorkEntryId && x.Id <= wf.Id);
+        name = WorkFileNaming.Build(wt.FullNumber, index, wf.OriginalFileName);
+    }
+    return Results.File(bytes, "application/octet-stream", name);
 }).RequireAuthorization();
 
 // Создание БД и наполнение справочников

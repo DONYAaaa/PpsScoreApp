@@ -12,14 +12,18 @@
 
 <div class="tabs">
     <button class="tab @(tab == Tab.Users ? "active" : "")" @onclick="() => tab = Tab.Users">
-        Учётные записи (@users.Count)
+        Учётные записи@(loaded ? $" ({users.Count})" : "")
     </button>
     <button class="tab @(tab == Tab.Teachers ? "active" : "")" @onclick="() => tab = Tab.Teachers">
-        Преподаватели (@teachers.Count)
+        Преподаватели@(loaded ? $" ({teachers.Count})" : "")
     </button>
 </div>
 
-@if (tab == Tab.Users)
+@if (!loaded)
+{
+    <p class="hint loading-line"><span class="spinner small"></span> Загрузка…</p>
+}
+else if (tab == Tab.Users)
 {
     <div class="toolbar">
         <div class="field grow">
@@ -330,6 +334,9 @@ else
     private enum Tab { Users, Teachers }
     private Tab tab = Tab.Users;
 
+    /// <summary>Списки получены. До этого страница показывает заглушку, а не пустые таблицы.</summary>
+    private bool loaded;
+
     private List<AppUser> users = new();
     private List<Teacher> teachers = new();
     private List<Department> departments = new();
@@ -340,6 +347,7 @@ else
         await using var db = await DbFactory.CreateDbContextAsync();
         departments = await db.Departments.OrderBy(d => d.Name).ToListAsync();
         await Reload();
+        loaded = true;
     }
 
     private async Task Reload()

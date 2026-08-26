@@ -365,7 +365,40 @@ textarea.control { min-width: 320px; resize: vertical; }
     margin-top: 1px;
 }
 .info-btn:hover { background: var(--primary); color: #fff; }
-.instr-text { white-space: pre-line; line-height: 1.5; color: #334155; max-height: 60vh; overflow-y: auto; }
+/* прокручивается само окно (.modal), у текста своего скролла быть не должно —
+   иначе внутри модалки получаются две полосы прокрутки */
+.instr-text { white-space: pre-line; line-height: 1.55; color: #334155; }
+
+/* расшифровка «за что сколько баллов» в окне «?» */
+.score-legend {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+.score-legend-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    margin-bottom: 6px;
+}
+.score-table { width: 100%; border-collapse: collapse; }
+.score-table td {
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--line);
+    vertical-align: top;
+    line-height: 1.4;
+}
+.score-table tr:last-child td { border-bottom: none; }
+.score-table td.num {
+    text-align: right;
+    white-space: nowrap;
+    font-weight: 700;
+    padding-left: 14px;
+    font-variant-numeric: tabular-nums;
+}
 
 /* ---- file cell ---- */
 .grid.sheet .file-cell { font-size: 12px; }
@@ -501,7 +534,38 @@ textarea.control { min-width: 320px; resize: vertical; }
     display: flex;
     align-items: center;
     font-weight: 500;
+    /* та же высота, что у select, — иначе тулбар дёргается при подмене
+       (высота фиксируется line-height, чтобы пустая заглушка и текст совпадали) */
+    min-height: 36px;
+    line-height: 18px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
+
+/* Поле «Преподаватель» имеет постоянную ширину: заглушка, список (админ) и
+   статичное ФИО (обычный пользователь) занимают одно и то же место, поэтому
+   тулбар не перестраивается, когда загрузка заканчивается. */
+.field-teacher .control { width: 260px; min-width: 0; }
+
+/* год и семестр не нуждаются в общей ширине 180px — освобождаем место в тулбаре */
+.field-year .control { width: 130px; min-width: 0; }
+.field-sem .control { width: 90px; min-width: 0; }
+
+/* состояние загрузки: место занято, но ничего не утверждается */
+.skeleton {
+    background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 37%, #eef2f7 63%);
+    background-size: 400% 100%;
+    border-color: var(--line);
+    animation: skeleton-shimmer 1.4s ease infinite;
+}
+@keyframes skeleton-shimmer {
+    from { background-position: 100% 50%; }
+    to { background-position: 0 50%; }
+}
+
+.loading-line { display: flex; align-items: center; gap: 10px; }
+.spinner.small { width: 14px; height: 14px; border-width: 2px; }
 
 .warn-text { color: #b45309; font-weight: 600; }
 
@@ -620,6 +684,36 @@ textarea.control { min-width: 320px; resize: vertical; }
 /* кнопка «Заполнено» в отмеченном состоянии */
 .btn.success { background: #15803d; border-color: #15803d; color: #fff; }
 .btn.success:hover { background: #166534; }
+
+/* подсказка со стрелкой на кнопку «Заполнено»: видна, пока отметка не поставлена */
+.complete-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #b45309;
+    background: var(--warn-bg);
+    border: 1px solid #f0c36b;
+    border-radius: 7px;
+    padding: 6px 10px;
+    /* текст переносится в две строки: так подсказка помещается в тулбар
+       рядом с кнопкой и не выталкивает его поля на второй ряд */
+    max-width: 210px;
+    line-height: 1.3;
+}
+.complete-arrow {
+    font-size: 18px;
+    line-height: 1;
+    animation: nudge-right 1.2s ease-in-out infinite;
+}
+@keyframes nudge-right {
+    0%, 100% { transform: translateX(0); }
+    50%      { transform: translateX(5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .complete-arrow { animation: none; }
+}
 
 /* ---- стабильные кнопки в тулбаре ---- */
 .toolbar-actions { display: flex; }

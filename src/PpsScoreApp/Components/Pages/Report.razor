@@ -40,7 +40,11 @@
     </div>
 </div>
 
-@if (!isAdmin)
+@if (!loaded)
+{
+    <p class="hint loading-line"><span class="spinner small"></span> Загрузка…</p>
+}
+else if (!isAdmin)
 {
     @if (myTeacherId is null)
     {
@@ -169,6 +173,9 @@ else
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    /// <summary>Права и списки получены. До этого страница показывает заглушку.</summary>
+    private bool loaded;
+
     private bool isAdmin;
     private int? myTeacherId;
 
@@ -220,6 +227,7 @@ else
         }
 
         await LoadStatuses();
+        loaded = true;
     }
 
     private async Task<string?> CurrentLogin()

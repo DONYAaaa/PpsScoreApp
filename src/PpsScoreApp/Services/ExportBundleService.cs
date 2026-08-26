@@ -34,7 +34,17 @@ public class ExportBundleService
             .Where(f => teacherIds.Contains(f.WorkEntry!.TeacherId)
                         && f.WorkEntry.AcademicYear == report.AcademicYear
                         && f.WorkEntry.Semester == report.Semester)
-            .Select(f => new { f.WorkEntry!.TeacherId, f.StoredFileName, f.OriginalFileName })
+            .OrderBy(f => f.WorkEntry!.WorkType!.Section)
+            .ThenBy(f => f.WorkEntry!.WorkType!.DisplayOrder)
+            .ThenBy(f => f.Id)
+            .Select(f => new
+            {
+                f.WorkEntry!.TeacherId,
+                f.StoredFileName,
+                f.OriginalFileName,
+                Section = f.WorkEntry.WorkType!.Section,
+                Number = f.WorkEntry.WorkType.Number
+            })
             .ToListAsync();
 
         using var ms = new MemoryStream();
@@ -55,14 +65,19 @@ public class ExportBundleService
                 // пояснения преподавателя
                 WriteEntry(zip, $"{folder}/Пояснения_{baseName}.docx", _word.Build(t, report));
 
-                // приложенные файлы
+                // приложенные файлы: имя по инструкции — «Номер пункта_Порядковый номер.*»
                 var usedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var indexByPoint = new Dictionary<string, int>();
                 foreach (var a in attachments.Where(a => a.TeacherId == t.TeacherId))
                 {
                     var bytes = await _storage.ReadAsync(a.StoredFileName!);
                     if (bytes == null) continue;
 
-                    var fileName = SanitizeFileName(a.OriginalFileName ?? a.StoredFileName!);
+                    var point = $"{(int)a.Section}.{a.Number}";
+                    indexByPoint[point] = indexByPoint.GetValueOrDefault(point) + 1;
+
+                    var fileName = SanitizeFileName(
+                        WorkFileNaming.Build(point, indexByPoint[point], a.OriginalFileName ?? a.StoredFileName));
                     var name = fileName; int n = 1;
                     while (!usedFiles.Add(name)) name = AppendSuffix(fileName, ++n);
 
