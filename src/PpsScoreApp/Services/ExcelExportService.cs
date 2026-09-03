@@ -29,7 +29,7 @@ public class ExcelExportService
             var ws = wb.Worksheets.Add(SheetName(g.Key.DepartmentShort ?? g.Key.DepartmentName, idx, wb));
             ws.Style.Font.FontName = "Times New Roman";
             ws.Style.Font.FontSize = 11;
-            RenderSheet(ws, report, teachers, g.Key.DepartmentName, g.Key.DepartmentShort, g.Key.HeadName);
+            RenderSheet(ws, report, teachers, g.Key.DepartmentName, g.Key.HeadName);
         }
 
         if (groups.Count == 0)
@@ -41,7 +41,7 @@ public class ExcelExportService
     }
 
     private static void RenderSheet(IXLWorksheet ws, ReportResult report, List<TeacherReport> teachers,
-        string deptName, string? deptShort, string? headName)
+        string deptName, string? headName)
     {
         int lastCol = Math.Max(FirstTeacherCol + teachers.Count - 1, FirstTeacherCol);
         int r = 1;
@@ -88,6 +88,9 @@ public class ExcelExportService
         hr.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
         r = headBottom + 1;
 
+        // объединения ячейки «№» по группам подпунктов — применяются после вывода всех строк
+        var numberMerges = new List<(int from, int to)>();
+
         // разделы и виды работ
         foreach (WorkSection sec in Enum.GetValues<WorkSection>())
         {
@@ -106,30 +109,59 @@ public class ExcelExportService
             sr.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
             r++;
 
-            foreach (var w in types)
+            for (int k = 0; k < types.Count; k++)
             {
-                ws.Cell(r, 1).Value = w.Number;
+                var w = types[k];
+
+                ws.Cell(r, 1).Value = w.ShowNumber ? w.Number : "";
                 ws.Cell(r, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
                 ws.Cell(r, 2).Value = w.Title;
                 ws.Cell(r, 2).Style.Alignment.WrapText = true;
+                if (w.Level > 0) ws.Cell(r, 2).Style.Alignment.Indent = w.Level;
                 ws.Cell(r, 3).Value = RefPoints(w);
                 ws.Cell(r, 3).Style.Alignment.WrapText = true;
                 ws.Cell(r, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                for (int i = 0; i < teachers.Count; i++)
+
+                // по строке-заголовку группы баллы не вносятся — ячейки преподавателей пустые
+                if (!w.IsHeader)
                 {
-                    if (teachers[i].PointsByWorkType.TryGetValue(w.Id, out var pts) && pts != 0)
+                    for (int i = 0; i < teachers.Count; i++)
                     {
-                        var c = ws.Cell(r, FirstTeacherCol + i);
-                        c.Value = pts;
-                        c.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                        if (teachers[i].PointsByWorkType.TryGetValue(w.Id, out var pts) && pts != 0)
+                        {
+                            var c = ws.Cell(r, FirstTeacherCol + i);
+                            c.Value = pts;
+                            c.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                        }
                     }
                 }
+
                 var rr = ws.Range(r, 1, r, lastCol);
                 rr.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
                 rr.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
                 rr.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+                // как в бланке: номер пункта объединяется по группе подпунктов — но только там,
+                // где у подпунктов нет собственных номеров (у 4.4.1–4.4.4 они есть, там merge не нужен)
+                if (w.Level == 0)
+                {
+                    int subs = 0;
+                    while (k + subs + 1 < types.Count && types[k + subs + 1].Level > 0) subs++;
+                    if (subs > 0 && types.Skip(k + 1).Take(subs).All(x => !x.ShowNumber))
+                        numberMerges.Add((r, r + subs));
+                }
+
                 r++;
             }
+        }
+
+        foreach (var (from, to) in numberMerges)
+        {
+            var numCell = ws.Range(from, 1, to, 1);
+            numCell.Merge();
+            numCell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            numCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            numCell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         }
 
         // строка ИТОГО
@@ -147,7 +179,8 @@ public class ExcelExportService
         r += 2;
 
         // подпись зав. кафедрой
-        ws.Cell(r, 1).Value = $"Зав. кафедрой «{deptShort ?? deptName}» ____________________ {headName}";
+        // в подписи — полное название кафедры, как в бланке; аббревиатура идёт только в имя листа
+        ws.Cell(r, 1).Value = $"Зав. кафедрой «{deptName}» ____________________ {headName}";
         ws.Range(r, 1, r, lastCol).Merge();
         ws.Cell(r, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
         int lastRow = r;

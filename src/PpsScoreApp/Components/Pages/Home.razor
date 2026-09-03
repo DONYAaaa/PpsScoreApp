@@ -266,10 +266,29 @@ else
                 </tr>
                 @foreach (var row in secRows)
                 {
+                    @if (row.Wt.IsHeader)
+                    {
+                        @* строка-заголовок группы подпунктов: баллы вносятся по вложенным строкам *@
+                        <tr class="group-row">
+                            <td>@(row.Wt.ShowNumber ? row.Wt.Number : "")</td>
+                            <td class="wt-cell" colspan="6">
+                                <div class="wt-title lvl-@row.Wt.Level">
+                                    @if (WorkInstructions.For(row.Wt.FullNumber) is string ginstr)
+                                    {
+                                        <button type="button" class="info-btn" title="Как заполнять"
+                                                @onclick="() => OpenInfo(row.Wt, ginstr)">?</button>
+                                    }
+                                    <span>@row.Wt.Title</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
                     <tr>
-                        <td>@row.Wt.Number</td>
+                        <td>@(row.Wt.ShowNumber ? row.Wt.Number : "")</td>
                         <td class="wt-cell">
-                            <div class="wt-title">
+                            <div class="wt-title lvl-@row.Wt.Level">
                                 @if (WorkInstructions.For(row.Wt.FullNumber) is string instr)
                                 {
                                     <button type="button" class="info-btn" title="Как заполнять"
@@ -316,6 +335,7 @@ else
                             </div>
                         </td>
                     </tr>
+                    }
                 }
             }
         </tbody>

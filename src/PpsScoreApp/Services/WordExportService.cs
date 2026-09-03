@@ -60,7 +60,7 @@ public class WordExportService
             }
 
             body.AppendChild(Para("", size: 16));
-            body.AppendChild(Para($"Зав. кафедрой «{teacher.DepartmentShort ?? teacher.DepartmentName}» " +
+            body.AppendChild(Para($"Зав. кафедрой «{teacher.DepartmentName}» " +
                                   "____________________ " + (teacher.HeadName ?? "")));
             body.AppendChild(Para("М.П.", size: 24));
         }

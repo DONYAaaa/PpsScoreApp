@@ -40,6 +40,24 @@ public class WorkType
     /// <summary>Порядок отображения внутри раздела.</summary>
     public int DisplayOrder { get; set; }
 
+    /// <summary>
+    /// Уровень вложенности строки формы: 0 — пункт, 1 — подпункт «–», 2 — подпункт «а)/б)».
+    /// Задаёт отступ в таблице ввода и в Excel.
+    /// </summary>
+    public int Level { get; set; }
+
+    /// <summary>
+    /// Строка-заголовок группы подпунктов (напр. «Публикация научной статьи (за отчётный период):»).
+    /// Баллы по ней не вносятся — они вносятся по вложенным подпунктам.
+    /// </summary>
+    public bool IsHeader { get; set; }
+
+    /// <summary>
+    /// Печатать ли номер в колонке «№». В форме у подпунктов раздела 2 номер общий с пунктом
+    /// (ячейка объединена), а у подпунктов 4.4.1–4.4.4 номера свои.
+    /// </summary>
+    public bool ShowNumber { get; set; } = true;
+
     /// <summary>Варианты баллов (для InputKind = Choice).</summary>
     public List<ScoreOption> Options { get; set; } = new();
 

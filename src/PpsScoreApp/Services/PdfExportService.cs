@@ -81,7 +81,7 @@ public class PdfExportService
                         {
                             row.RelativeItem().Column(c =>
                             {
-                                c.Item().Text($"Зав. кафедрой «{t.DepartmentShort ?? t.DepartmentName}»");
+                                c.Item().Text($"Зав. кафедрой «{t.DepartmentName}»");
                                 c.Item().PaddingTop(18)
                                     .Text("_______________________ / " + (t.HeadName ?? "_______________") + " /");
                             });
