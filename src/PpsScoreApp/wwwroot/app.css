@@ -750,3 +750,55 @@ textarea.control { min-width: 320px; resize: vertical; }
     animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- проверяющий: режим «только просмотр» и замечания ---- */
+.readonly-badge {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    background: #f1f5f9;
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    padding: 6px 10px;
+}
+.grid.sheet input.control:disabled { background: #f8fafc; color: var(--text); cursor: default; }
+
+.grid.sheet tr.has-remark > td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
+.grid.sheet td.remark-cell { text-align: center; }
+.remark-btn {
+    min-width: 44px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 3px 8px;
+    cursor: pointer;
+}
+.remark-btn.open { color: #dc2626; border-color: #f3bcbc; background: #fef2f2; }
+.remark-btn.resolved { color: #15803d; border-color: #bbe5c8; background: #f0fdf4; }
+.remark-btn.empty { color: var(--muted); }
+.remark-btn:hover { border-color: var(--line-strong); }
+
+.remarks-general { margin-left: 12px; }
+.remarks-general.has-open { color: #dc2626; border-color: #f3bcbc; }
+.remarks-open-note { color: #dc2626; font-weight: 600; font-size: 13px; margin-left: 8px; }
+
+.remark-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.remark-item {
+    border: 1px solid var(--line);
+    border-left: 3px solid #dc2626;
+    border-radius: 7px;
+    padding: 8px 10px;
+}
+.remark-item.resolved { border-left-color: #15803d; background: #f8fafc; }
+.remark-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.remark-status { font-weight: 700; color: #dc2626; }
+.remark-item.resolved .remark-status { color: #15803d; }
+.remark-text { white-space: pre-wrap; margin: 6px 0; }
+.remark-item.resolved .remark-text { color: var(--muted); }
+.remark-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.remark-actions:empty { display: none; }
+.remark-editor { width: 100%; resize: vertical; }
+
+.remark-flag { color: #dc2626; font-weight: 700; margin-left: 4px; }

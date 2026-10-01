@@ -19,6 +19,12 @@ public class AppUser
 
     public bool IsAdmin { get; set; }
 
+    /// <summary>
+    /// Проверяющий: видит показатели всех преподавателей (только чтение) и пишет замечания.
+    /// Совместим с IsAdmin и с привязкой к преподавателю (свою таблицу правит как обычно).
+    /// </summary>
+    public bool IsReviewer { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     /// <summary>
@@ -31,4 +37,15 @@ public class AppUser
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public string Name => string.IsNullOrWhiteSpace(DisplayName) ? Login : DisplayName!;
+
+    /// <summary>Видит всех преподавателей (админ — с правкой, проверяющий — на чтение).</summary>
+    public bool SeesAllTeachers => IsAdmin || IsReviewer;
+
+    public string RoleTitle => (IsAdmin, IsReviewer) switch
+    {
+        (true, true) => "Администратор, проверяющий",
+        (true, false) => "Администратор",
+        (false, true) => "Проверяющий",
+        _ => "Пользователь"
+    };
 }

@@ -47,6 +47,7 @@ builder.Services.AddScoped<ExportBundleService>();
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<TeacherService>();
 builder.Services.AddScoped<CompletionService>();
+builder.Services.AddScoped<RemarkService>();
 builder.Services.AddSingleton<FileStorageService>();
 builder.Services.AddSingleton<AuditLogger>();
 
@@ -88,6 +89,7 @@ app.MapPost("/auth/login", async (HttpContext http, UserService users, AuditLogg
     // чтобы изменения администратора действовали без перелогина. Клейм — для справки.
     if (user.TeacherId is int tid) claims.Add(new("TeacherId", tid.ToString()));
     if (user.IsAdmin) claims.Add(new(ClaimTypes.Role, "Admin"));
+    if (user.IsReviewer) claims.Add(new(ClaimTypes.Role, "Reviewer"));
 
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,

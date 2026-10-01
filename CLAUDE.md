@@ -140,6 +140,9 @@ Domain/            сущности
   AppUser.cs        пользователь (Login uniq, DisplayName, PasswordHash, IsAdmin, IsActive,
                     TeacherId? — привязка к преподавателю; у админа null = доступ ко всем)
   CompletionStatus.cs  отметка «Заполнено» на (TeacherId, AcademicYear, Semester) — таблица Completions
+  Remark.cs         замечание проверяющего на (TeacherId, AcademicYear, Semester, WorkTypeId?) —
+                    таблица Remarks; WorkTypeId = null — общее замечание к таблице; статус
+                    IsResolved/ResolvedAt/ResolvedBy
 
 Data/
   AppDbContext.cs   DbSet-ы + связи + индексы (см. ниже)
@@ -162,6 +165,7 @@ Services/
   PasswordHasher.cs     PBKDF2 (SHA256), формат "итерации.соль.хеш"
   AuditLogger.cs        лог по дням в папку Logs/ (singleton)
   CompletionService.cs  IsCompletedAsync / SetAsync / CompletedIdsAsync / StartedIdsAsync
+  RemarkService.cs      ListAsync / AddAsync / SetResolvedAsync / DeleteAsync / OpenCountsAsync
   WorkInstructions.cs   статический словарь FullNumber → текст инструкции (из PDF), для «?»
                         57 записей — по числу видов работ
   Periods.cs            учебные годы, семестры
@@ -202,9 +206,14 @@ README.md         прод-описание
 - CompletionStatus → Teacher: **Cascade**.
 - AppUser → Teacher: **SetNull** (удаление преподавателя оставляет учётку без привязки).
 - ScoreOption → WorkType: **Cascade**.
+- Remark → Teacher: **Cascade**; Remark → WorkType: **Restrict** (FK nullable).
 - Индексы: `Department.Name` uniq, `AppUser.Login` uniq,
-  `WorkEntry(TeacherId, AcademicYear, Semester)`,
-  `Completions(TeacherId, AcademicYear, Semester)` uniq.
+  `WorkEntry(TeacherId, AcademicYear, Semester, WorkTypeId)` uniq (защита от дублей
+  при гонке автосохранения), `Completions(TeacherId, AcademicYear, Semester)` uniq,
+  `Remarks(TeacherId, AcademicYear, Semester)`.
+
+Замечание привязано к **строке** (виду работы), а не к `WorkEntry`: строка бывает пустой,
+а очистка строки удаляет `WorkEntry` — замечание при этом должно остаться.
 
 Периоды: учебный год — строка вида `"2025/26"`; семестр — int (1/2).
 
@@ -260,6 +269,57 @@ SELECT [Id],[StoredFileName],[OriginalFileName], SYSUTCDATETIME()
 FROM [WorkEntries] WHERE [StoredFileName] IS NOT NULL;
 ```
 
+### Уникальность WorkEntry по виду работы (SQL для существующей БД)
+Сначала дубли сливаются в запись с наименьшим Id (её и показывал экран ввода):
+файлы дублей переносятся, сами дубли удаляются. Синтаксис совместим с SQL Server < 2016.
+```sql
+;WITH d AS (SELECT [Id], MIN([Id]) OVER (PARTITION BY [TeacherId],[AcademicYear],[Semester],[WorkTypeId]) AS [KeepId] FROM [WorkEntries])
+UPDATE f SET [WorkEntryId] = d.[KeepId]
+FROM [WorkFiles] f JOIN d ON f.[WorkEntryId] = d.[Id] WHERE d.[Id] <> d.[KeepId];
+
+;WITH d AS (SELECT [Id], MIN([Id]) OVER (PARTITION BY [TeacherId],[AcademicYear],[Semester],[WorkTypeId]) AS [KeepId] FROM [WorkEntries])
+INSERT INTO [WorkFiles]([WorkEntryId],[StoredFileName],[OriginalFileName],[CreatedAt])
+SELECT d.[KeepId], e.[StoredFileName], e.[OriginalFileName], SYSUTCDATETIME()
+FROM [WorkEntries] e JOIN d ON e.[Id] = d.[Id]
+WHERE d.[Id] <> d.[KeepId] AND e.[StoredFileName] IS NOT NULL;
+
+;WITH d AS (SELECT [Id], MIN([Id]) OVER (PARTITION BY [TeacherId],[AcademicYear],[Semester],[WorkTypeId]) AS [KeepId] FROM [WorkEntries])
+DELETE e FROM [WorkEntries] e JOIN d ON e.[Id] = d.[Id] WHERE d.[Id] <> d.[KeepId];
+
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE [name] = 'IX_WorkEntries_TeacherId_AcademicYear_Semester'
+           AND [object_id] = OBJECT_ID('WorkEntries'))
+    DROP INDEX [IX_WorkEntries_TeacherId_AcademicYear_Semester] ON [WorkEntries];
+CREATE UNIQUE INDEX [IX_WorkEntries_TeacherId_AcademicYear_Semester_WorkTypeId]
+    ON [WorkEntries]([TeacherId],[AcademicYear],[Semester],[WorkTypeId]);
+```
+
+### Роль проверяющего и замечания (SQL для существующей БД)
+```sql
+ALTER TABLE [Users] ADD [IsReviewer] bit NOT NULL CONSTRAINT [DF_Users_IsReviewer] DEFAULT 0;
+
+CREATE TABLE [Remarks] (
+    [Id] int NOT NULL IDENTITY,
+    [TeacherId] int NOT NULL,
+    [AcademicYear] nvarchar(9) NOT NULL,
+    [Semester] int NOT NULL,
+    [WorkTypeId] int NULL,
+    [Text] nvarchar(2000) NOT NULL,
+    [AuthorLogin] nvarchar(100) NULL,
+    [CreatedAt] datetime2 NOT NULL,
+    [IsResolved] bit NOT NULL,
+    [ResolvedAt] datetime2 NULL,
+    [ResolvedBy] nvarchar(100) NULL,
+    CONSTRAINT [PK_Remarks] PRIMARY KEY ([Id]),
+    CONSTRAINT [FK_Remarks_Teachers_TeacherId] FOREIGN KEY ([TeacherId])
+        REFERENCES [Teachers]([Id]) ON DELETE CASCADE,
+    CONSTRAINT [FK_Remarks_WorkTypes_WorkTypeId] FOREIGN KEY ([WorkTypeId])
+        REFERENCES [WorkTypes]([Id])
+);
+CREATE INDEX [IX_Remarks_TeacherId_AcademicYear_Semester]
+    ON [Remarks]([TeacherId],[AcademicYear],[Semester]);
+CREATE INDEX [IX_Remarks_WorkTypeId] ON [Remarks]([WorkTypeId]);
+```
+
 ---
 
 ## 7. Правила подсчёта (`Services/ScoringRules.cs`)
@@ -284,10 +344,17 @@ FROM [WorkEntries] WHERE [StoredFileName] IS NOT NULL;
 - `AppUser.TeacherId` привязывает учётку к одному преподавателю. Обычный пользователь
   видит и правит **только его** показатели (Home) и отчитывается **только за него** (Report).
 - Админ (`IsAdmin`) работает со всеми; у него `TeacherId` обычно null.
+- Проверяющий (`IsReviewer`, совместим с `IsAdmin`; роль-клейм `Reviewer`) видит всех
+  преподавателей на Home/Report **только на чтение**, пишет замечания, выгружает ZIP.
+  Привязка к преподавателю у него необязательна; если есть — свою таблицу правит как обычно.
+  На Home это флаги `SeesAll` (админ/проверяющий), `CanEdit` (админ или своя таблица),
+  `CanResolve` (`CanEdit` или проверяющий). Серверные методы правки проверяют `CanEdit`.
+- Замечания: добавить/удалить/«Вернуть в работу» — только проверяющий; «Исправлено» —
+  тот, кто правит таблицу, или проверяющий.
 - Права на страницах берутся **из БД** через `UserService.GetByLoginAsync(login)`, а не из
   клеймов куки — чтобы смена привязки админом действовала без перелогина. Клейм `TeacherId`
   в куке есть, но носит справочный характер.
-- Учётка без привязки и без прав админа не может вводить показатели — страница показывает
+- Учётка без привязки и без прав админа/проверяющего не может вводить показатели — страница показывает
   подсказку обратиться к администратору.
 - Управление преподавателями (добавить/переименовать/перевести/удалить) живёт **только**
   на `/users`, вкладка «Преподаватели». С экрана ввода кнопки убраны намеренно.
@@ -342,6 +409,13 @@ FROM [WorkEntries] WHERE [StoredFileName] IS NOT NULL;
 - Оверлей-спиннер (`busy`/`busyText`) для длительных операций (очистка, загрузка файлов).
 - Одна строка ↔ одна запись `WorkEntry` за (преподаватель, период). Модель строки — вложенный
   класс `Row` (Value:int, Comment, EntryId, ExtraEntryIds, Files, NewFiles, RemoveFileIds).
+- **Режим «Только просмотр»** (`!CanEdit`, у проверяющего на чужой таблице): поле ввода
+  disabled, нет очистки, загрузки/удаления файлов, «Заполнено»; комментарий открывается
+  на чтение; файлы скачиваются.
+- **Замечания**: колонка «Замечания» (видна проверяющему или при наличии замечаний) —
+  кнопка `⚑N` (открытые) / `✓` (все исправлены) / `+`; строка с открытыми замечаниями
+  отмечена красной полосой слева. Кнопка «Общие замечания» в плашке итогов —
+  замечания с `WorkTypeId = null`. Модалка: список, статусы, добавление (проверяющий).
 
 ### Users.razor (`/users`) — только админ
 Две вкладки:
@@ -358,6 +432,7 @@ FROM [WorkEntries] WHERE [StoredFileName] IS NOT NULL;
   заполнение начато, 🟢 зелёный — отмечено «Заполнено». Сверху — легенда. Статусы берутся из
   `CompletionService.CompletedIdsAsync` (зелёный) и `StartedIdsAsync` (есть записи → жёлтый).
 - Предпросмотр и выгрузка ZIP (`Bundle.BuildAsync`).
+- У имени — `⚑N`, если есть открытые замечания проверяющего (`RemarkService.OpenCountsAsync`).
 
 ---
 
@@ -392,3 +467,6 @@ FROM [WorkEntries] WHERE [StoredFileName] IS NOT NULL;
   браузер держал старый CSS после выкладки.
 - Разграничение доступа: `AppUser.TeacherId`, управление преподавателями переехало
   с экрана ввода на `/users` (см. раздел 8).
+- Уникальный индекс `WorkEntry(TeacherId, AcademicYear, Semester, WorkTypeId)` против
+  дублей из-за гонки автосохранения (SQL со слиянием дублей — раздел 6).
+- Роль проверяющего (`AppUser.IsReviewer`) и замечания к строкам (`Remarks`), см. разделы 6, 8, 11.

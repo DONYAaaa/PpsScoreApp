@@ -5,6 +5,7 @@
 @inject ReportService Reports
 @inject ExportBundleService Bundle
 @inject CompletionService Completion
+@inject RemarkService RemarkSvc
 @inject UserService UserSvc
 @inject IJSRuntime JS
 
@@ -44,7 +45,7 @@
 {
     <p class="hint loading-line"><span class="spinner small"></span> Загрузка…</p>
 }
-else if (!isAdmin)
+else if (!SeesAll)
 {
     @if (myTeacherId is null)
     {
@@ -60,6 +61,10 @@ else if (!isAdmin)
             <div class="status-legend">
                 Статус за выбранный период:
                 <span class="lg lg-@StatusClass(myTeacherId.Value)">● @StatusTitle(myTeacherId.Value)</span>
+                @if (OpenRemarks(myTeacherId.Value) is int n && n > 0)
+                {
+                    <span class="lg remark-flag">⚑ открытых замечаний проверяющего: @n — см. «Ввод показателей»</span>
+                }
             </div>
         </div>
     }
@@ -80,6 +85,7 @@ else
         <span class="lg lg-done">● отмечено «Заполнено»</span>
         <span class="lg lg-partial">● заполнение начато</span>
         <span class="lg lg-empty">● ничего не заполнено</span>
+        <span class="lg remark-flag">⚑N — открытые замечания проверяющего</span>
     </div>
 
     @foreach (var d in departments)
@@ -102,6 +108,10 @@ else
                                checked="@selected.Contains(t.Id)"
                                @onchange="e => ToggleTeacher(t.Id, (bool)e.Value!)" />
                         @t.FullName
+                        @if (OpenRemarks(t.Id) is int n && n > 0)
+                        {
+                            <span class="remark-flag" title="Открытых замечаний проверяющего: @n">⚑@n</span>
+                        }
                     </label>
                 }
             </div>
@@ -177,7 +187,11 @@ else
     private bool loaded;
 
     private bool isAdmin;
+    private bool isReviewer;
     private int? myTeacherId;
+
+    /// <summary>Выбирает любых преподавателей (админ или проверяющий).</summary>
+    private bool SeesAll => isAdmin || isReviewer;
 
     [SupplyParameterFromQuery(Name = "year")] public string? QYear { get; set; }
     [SupplyParameterFromQuery(Name = "sem")] public int? QSem { get; set; }
@@ -196,6 +210,7 @@ else
 
     private HashSet<int> completedIds = new();
     private HashSet<int> startedIds = new();
+    private Dictionary<int, int> openRemarks = new();
 
     private List<int> SelectedIds => selected.ToList();
 
@@ -203,20 +218,21 @@ else
     {
         var me = await UserSvc.GetByLoginAsync(await CurrentLogin());
         isAdmin = me?.IsAdmin ?? false;
+        isReviewer = me?.IsReviewer ?? false;
         myTeacherId = me?.TeacherId;
 
         await using var db = await DbFactory.CreateDbContextAsync();
         departments = await db.Departments.OrderBy(d => d.Name).ToListAsync();
 
         // обычный пользователь отчитывается только за себя
-        teachers = isAdmin
+        teachers = SeesAll
             ? await db.Teachers.OrderBy(t => t.FullName).ToListAsync()
             : await db.Teachers.Where(t => t.Id == myTeacherId).ToListAsync();
 
         if (!string.IsNullOrEmpty(QYear) && years.Contains(QYear)) academicYear = QYear;
         if (QSem is 1 or 2) semester = QSem.Value;
 
-        if (!isAdmin)
+        if (!SeesAll)
         {
             foreach (var t in teachers) selected.Add(t.Id);
         }
@@ -241,7 +257,10 @@ else
     {
         completedIds = await Completion.CompletedIdsAsync(academicYear, semester);
         startedIds = await Completion.StartedIdsAsync(academicYear, semester);
+        openRemarks = await RemarkSvc.OpenCountsAsync(academicYear, semester);
     }
+
+    private int OpenRemarks(int teacherId) => openRemarks.GetValueOrDefault(teacherId);
 
     private async Task OnYearChanged(ChangeEventArgs e)
     {

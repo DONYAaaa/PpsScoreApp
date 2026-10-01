@@ -43,12 +43,12 @@ public class UserService
     }
 
     public async Task<(bool ok, string? error)> CreateAsync(string login, string? displayName, string password,
-        bool isAdmin, int? teacherId)
+        bool isAdmin, bool isReviewer, int? teacherId)
     {
         login = (login ?? "").Trim();
         if (string.IsNullOrWhiteSpace(login)) return (false, "Укажите логин.");
         if (string.IsNullOrEmpty(password) || password.Length < 4) return (false, "Пароль не короче 4 символов.");
-        if (!isAdmin && teacherId is null)
+        if (!isAdmin && !isReviewer && teacherId is null)
             return (false, "Выберите преподавателя: обычная учётная запись правит только его показатели.");
 
         await using var db = await _factory.CreateDbContextAsync();
@@ -64,6 +64,7 @@ public class UserService
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
             PasswordHash = PasswordHasher.Hash(password),
             IsAdmin = isAdmin,
+            IsReviewer = isReviewer,
             IsActive = true,
             TeacherId = teacherId,
             CreatedAt = DateTime.UtcNow
@@ -72,10 +73,10 @@ public class UserService
         return (true, null);
     }
 
-    /// <summary>Меняет привязку учётной записи к преподавателю и права администратора.</summary>
-    public async Task<(bool ok, string? error)> UpdateAccessAsync(int userId, bool isAdmin, int? teacherId)
+    /// <summary>Меняет привязку учётной записи к преподавателю и роли (администратор, проверяющий).</summary>
+    public async Task<(bool ok, string? error)> UpdateAccessAsync(int userId, bool isAdmin, bool isReviewer, int? teacherId)
     {
-        if (!isAdmin && teacherId is null)
+        if (!isAdmin && !isReviewer && teacherId is null)
             return (false, "Выберите преподавателя: обычная учётная запись правит только его показатели.");
 
         await using var db = await _factory.CreateDbContextAsync();
@@ -89,6 +90,7 @@ public class UserService
         if (check != null) return (false, check);
 
         user.IsAdmin = isAdmin;
+        user.IsReviewer = isReviewer;
         user.TeacherId = teacherId;
         await db.SaveChangesAsync();
         return (true, null);

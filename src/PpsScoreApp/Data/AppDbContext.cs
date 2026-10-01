@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<WorkFile> WorkFiles => Set<WorkFile>();
     public DbSet<CompletionStatus> Completions => Set<CompletionStatus>();
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<Remark> Remarks => Set<Remark>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -70,6 +71,19 @@ public class AppDbContext : DbContext
             .HasForeignKey(u => u.TeacherId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        // Замечания проверяющего: удаляются вместе с преподавателем.
+        b.Entity<Remark>()
+            .HasOne(r => r.Teacher)
+            .WithMany()
+            .HasForeignKey(r => r.TeacherId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        b.Entity<Remark>()
+            .HasOne(r => r.WorkType)
+            .WithMany()
+            .HasForeignKey(r => r.WorkTypeId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // decimal precision
         foreach (var prop in new[] { "FixedPoints", "UnitPoints" })
             b.Entity<WorkType>().Property(prop).HasPrecision(6, 2);
@@ -77,11 +91,18 @@ public class AppDbContext : DbContext
         b.Entity<WorkEntry>().Property(e => e.Points).HasPrecision(6, 2);
 
         b.Entity<Department>().HasIndex(d => d.Name).IsUnique();
-        b.Entity<WorkEntry>().HasIndex(e => new { e.TeacherId, e.AcademicYear, e.Semester });
+        // один вид работы у преподавателя за период — ровно одна запись.
+        // Уникальность нужна против гонки в автосохранении: два одновременных
+        // вызова могли вставить два WorkEntry на один WorkTypeId, и тогда таблица
+        // ввода показывала первую запись, а отчёт — сумму всех.
+        b.Entity<WorkEntry>()
+            .HasIndex(e => new { e.TeacherId, e.AcademicYear, e.Semester, e.WorkTypeId })
+            .IsUnique();
         b.Entity<AppUser>().HasIndex(u => u.Login).IsUnique();
         // один преподаватель — не более одной учётной записи
         b.Entity<AppUser>().HasIndex(u => u.TeacherId).IsUnique()
             .HasFilter("[TeacherId] IS NOT NULL");
         b.Entity<CompletionStatus>().HasIndex(c => new { c.TeacherId, c.AcademicYear, c.Semester }).IsUnique();
+        b.Entity<Remark>().HasIndex(r => new { r.TeacherId, r.AcademicYear, r.Semester });
     }
 }

@@ -4,6 +4,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject FileStorageService Storage
 @inject CompletionService Completion
+@inject RemarkService RemarkSvc
 @inject UserService UserSvc
 @inject AuditLogger Audit
 @inject NavigationManager Nav
@@ -33,7 +34,7 @@
             @* до загрузки прав неизвестно, админ это или нет — держим место, чтобы тулбар не «прыгал» *@
             <div class="control control-static skeleton"></div>
         }
-        else if (isAdmin)
+        else if (SeesAll)
         {
             <select class="control" value="@selectedTeacherId" @onchange="OnTeacherChanged">
                 <option value="0">— выберите —</option>
@@ -78,14 +79,20 @@
         <label>&nbsp;</label>
         <div class="row toolbar-actions">
             <span class="save-msg">@saveMessage</span>
-            @if (loaded && selectedTeacherId != 0 && !isCompleted)
+            @if (loaded && selectedTeacherId != 0 && !CanEdit)
+            {
+                <span class="readonly-badge" title="Проверяющий видит таблицу без права правки и может оставлять замечания">
+                    Только просмотр
+                </span>
+            }
+            @if (loaded && selectedTeacherId != 0 && !isCompleted && CanEdit)
             {
                 <span class="complete-hint" title="Пока отметка не поставлена, преподаватель считается незаполнившим показатели за период">
                     Заполнили таблицу — обязательно нажмите
                     <span class="complete-arrow" aria-hidden="true">→</span>
                 </span>
             }
-            <button class="btn btn-complete @(isCompleted ? "success" : "")" disabled="@(!loaded || selectedTeacherId == 0)"
+            <button class="btn btn-complete @(isCompleted ? "success" : "")" disabled="@(!loaded || selectedTeacherId == 0 || !CanEdit)"
                     @onclick="ToggleCompleted"
                     title="@(isCompleted
                               ? "Отметка снимется — таблица снова будет считаться незаполненной"
@@ -128,12 +135,13 @@
             <h3>Комментарий — п. @commentRow.Wt.FullNumber</h3>
             <div class="comment-modal-subtitle">@commentRow.Wt.Title</div>
             <textarea class="control comment-editor" rows="14" maxlength="2000"
+                      readonly="@(!CanEdit)"
                       @ref="commentEditor"
                       @bind="commentDraft" @bind:event="oninput"
                       @onkeydown="OnCommentKeyDown"
                       placeholder="Перечислите работы: по одной в строке."></textarea>
             <div class="comment-modal-foot">
-                @if (commentRow.Value == 0)
+                @if (commentRow.Value == 0 && CanEdit)
                 {
                     <span class="comment-warn">Комментарий сохранится только вместе с баллом в колонке «Заполнение».</span>
                 }
@@ -142,9 +150,81 @@
                 </span>
             </div>
             <div class="modal-actions">
-                <span class="comment-keyhint">Ctrl+Enter — сохранить, Esc — закрыть</span>
-                <button class="btn" @onclick="CloseComment">Отмена</button>
-                <button class="btn primary" @onclick="SaveComment">Сохранить</button>
+                @if (CanEdit)
+                {
+                    <span class="comment-keyhint">Ctrl+Enter — сохранить, Esc — закрыть</span>
+                    <button class="btn" @onclick="CloseComment">Отмена</button>
+                    <button class="btn primary" @onclick="SaveComment">Сохранить</button>
+                }
+                else
+                {
+                    <button class="btn primary" @onclick="CloseComment">Закрыть</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (remarkOpen)
+{
+    var list = RemarksFor(remarkWtId);
+    var remarkWt = workTypes.FirstOrDefault(w => w.Id == remarkWtId);
+    <div class="modal-backdrop" @onclick="CloseRemarks">
+        <div class="modal wide remark-modal" @onclick:stopPropagation>
+            <h3>@(remarkWt is null ? "Общие замечания к таблице" : $"Замечания — п. {remarkWt.FullNumber}")</h3>
+            <div class="comment-modal-subtitle">
+                @(remarkWt?.Title ?? $"{TeacherName()}, {academicYear}, {semester} сем.")
+            </div>
+            @if (list.Count == 0)
+            {
+                <p class="hint">Замечаний нет.</p>
+            }
+            else
+            {
+                <ul class="remark-list">
+                    @foreach (var r in list)
+                    {
+                        <li class="remark-item @(r.IsResolved ? "resolved" : "open")">
+                            <div class="remark-meta">
+                                <span class="remark-status">@(r.IsResolved ? "✓ Исправлено" : "⚑ Открыто")</span>
+                                <span>@r.AuthorLogin, @LocalTime(r.CreatedAt)</span>
+                                @if (r.IsResolved)
+                                {
+                                    <span>· отметил(а) @r.ResolvedBy, @LocalTime(r.ResolvedAt)</span>
+                                }
+                            </div>
+                            <div class="remark-text">@r.Text</div>
+                            <div class="remark-actions">
+                                @if (!r.IsResolved && CanResolve)
+                                {
+                                    <button class="btn small success" @onclick="() => SetResolved(r, true)">Исправлено</button>
+                                }
+                                @if (r.IsResolved && isReviewer)
+                                {
+                                    <button class="btn small" @onclick="() => SetResolved(r, false)">Вернуть в работу</button>
+                                }
+                                @if (isReviewer)
+                                {
+                                    <button class="btn small danger" @onclick="() => DeleteRemark(r)">Удалить</button>
+                                }
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+            @if (isReviewer)
+            {
+                <textarea class="control remark-editor" rows="4" maxlength="2000"
+                          @bind="remarkDraft" @bind:event="oninput"
+                          placeholder="Новое замечание: что не так и что исправить."></textarea>
+            }
+            <div class="modal-actions">
+                <button class="btn" @onclick="CloseRemarks">Закрыть</button>
+                @if (isReviewer)
+                {
+                    <button class="btn primary" disabled="@string.IsNullOrWhiteSpace(remarkDraft)"
+                            @onclick="AddRemark">Добавить замечание</button>
+                }
             </div>
         </div>
     </div>
@@ -184,7 +264,7 @@
        показывается чужое состояние (пустой список, сообщение о непривязанной учётке) *@
     <p class="hint loading-line"><span class="spinner small"></span> Загрузка…</p>
 }
-else if (!isAdmin && myTeacherId is null)
+else if (!SeesAll && myTeacherId is null)
 {
     <div class="hint-box">
         Учётная запись не привязана к преподавателю, поэтому вносить показатели нельзя.
@@ -193,7 +273,7 @@ else if (!isAdmin && myTeacherId is null)
 }
 else if (selectedTeacherId == 0)
 {
-    <p class="hint">Выберите преподавателя, чтобы заполнить показатели за выбранный период.</p>
+    <p class="hint">Выберите преподавателя, чтобы @(isAdmin ? "заполнить" : "просмотреть") показатели за выбранный период.</p>
 }
 else
 {
@@ -231,8 +311,24 @@ else
                 }
             </span>
         </div>
-        <button class="btn danger clear-all" @onclick="ConfirmClearAll"
-                title="Удалить все баллы преподавателя за выбранный период">Очистить таблицу</button>
+        @if (CanEdit)
+        {
+            <button class="btn danger clear-all" @onclick="ConfirmClearAll"
+                    title="Удалить все баллы преподавателя за выбранный период">Очистить таблицу</button>
+        }
+        @if (isReviewer || remarks.Count > 0)
+        {
+            var general = RemarksFor(null);
+            var generalOpen = general.Count(r => !r.IsResolved);
+            <button class="btn remarks-general @(generalOpen > 0 ? "has-open" : "")" @onclick="() => OpenRemarks(null)"
+                    title="Замечания проверяющего ко всей таблице, не к конкретной строке">
+                ⚑ Общие замечания@(general.Count > 0 ? $" ({generalOpen} / {general.Count})" : "")
+            </button>
+        }
+        @if (OpenRemarkCount > 0)
+        {
+            <span class="remarks-open-note">Открытых замечаний: @OpenRemarkCount</span>
+        }
     </div>
 
     <div class="sheet-scroll">
@@ -246,6 +342,10 @@ else
                 <th style="width:70px">Балл</th>
                 <th class="col-comment">Комментарий</th>
                 <th style="width:180px">Файл</th>
+                @if (ShowRemarkCol)
+                {
+                    <th style="width:96px">Замечания</th>
+                }
             </tr>
         </thead>
         <tbody>
@@ -258,15 +358,20 @@ else
                 <tr class="section-row">
                     <td colspan="4">
                         <span class="sec-title-text">@sec.FullTitle()</span>
-                        <button class="btn small danger clear-sec" @onclick="() => ConfirmClearSection(sec)"
-                                title="Очистить этот раздел">Очистить раздел</button>
+                        @if (CanEdit)
+                        {
+                            <button class="btn small danger clear-sec" @onclick="() => ConfirmClearSection(sec)"
+                                    title="Очистить этот раздел">Очистить раздел</button>
+                        }
                     </td>
                     <td class="num">@capped.ToString("0.##")@(capped != raw ? $" / {raw:0.##}" : "")</td>
-                    <td colspan="2"></td>
+                    <td colspan="@(ShowRemarkCol ? 3 : 2)"></td>
                 </tr>
                 @foreach (var row in secRows)
                 {
-                    <tr>
+                    var rowRemarks = RemarksFor(row.Wt.Id);
+                    var rowOpen = rowRemarks.Count(r => !r.IsResolved);
+                    <tr class="@(rowOpen > 0 ? "has-remark" : "")">
                         <td>@row.Wt.Number</td>
                         <td class="wt-cell">
                             <div class="wt-title">
@@ -280,11 +385,13 @@ else
                         </td>
                         <td class="num">@RefPoints(row.Wt)</td>
                         <td>
-                            <input type="number" step="1" class="control narrow"
+                            <input type="number" step="1" class="control narrow" disabled="@(!CanEdit)"
                                    @bind="row.Value" @bind:after="() => AutoSaveRow(row)" />
                         </td>
                         <td class="num">@RowPoints(row).ToString("0.##")</td>
                         <td class="comment-cell">
+                            @if (CanEdit || !string.IsNullOrWhiteSpace(row.Comment))
+                            {
                             <button type="button" class="comment-view @(string.IsNullOrWhiteSpace(row.Comment) ? "empty" : "")"
                                     @onclick="() => OpenComment(row)"
                                     title="@(string.IsNullOrWhiteSpace(row.Comment) ? "Добавить комментарий" : row.Comment)">
@@ -292,8 +399,12 @@ else
                                 {
                                     <span class="comment-preview">@row.Comment</span>
                                 }
-                                <span class="comment-pen" aria-hidden="true">✎</span>
+                                @if (CanEdit)
+                                {
+                                    <span class="comment-pen" aria-hidden="true">✎</span>
+                                }
                             </button>
+                            }
                         </td>
                         <td class="file-cell">
                             <div class="file-box">
@@ -304,17 +415,37 @@ else
                                     <div class="file-item">
                                         <a class="file-link" href="/workfiles/@f.Id" target="_blank"
                                            title="@docName (исходное имя: @f.Name)">📎 @docName</a>
-                                        <button type="button" class="file-x" title="Удалить файл"
-                                                @onclick="() => RemoveFile(row, f.Id)">×</button>
+                                        @if (CanEdit)
+                                        {
+                                            <button type="button" class="file-x" title="Удалить файл"
+                                                    @onclick="() => RemoveFile(row, f.Id)">×</button>
+                                        }
                                     </div>
                                 }
                                 @foreach (var nf in row.NewFiles)
                                 {
                                     <div class="hint small">⏳ @nf.Name</div>
                                 }
-                                <InputFile multiple OnChange="e => OnFilesSelected(row, e)" />
+                                @if (CanEdit)
+                                {
+                                    <InputFile multiple OnChange="e => OnFilesSelected(row, e)" />
+                                }
                             </div>
                         </td>
+                        @if (ShowRemarkCol)
+                        {
+                            <td class="remark-cell">
+                                @if (rowRemarks.Count > 0 || isReviewer)
+                                {
+                                    <button type="button"
+                                            class="remark-btn @(rowOpen > 0 ? "open" : rowRemarks.Count > 0 ? "resolved" : "empty")"
+                                            title="@(rowOpen > 0 ? "Есть открытые замечания" : rowRemarks.Count > 0 ? "Все замечания исправлены" : "Добавить замечание")"
+                                            @onclick="() => OpenRemarks(row.Wt.Id)">
+                                        @(rowOpen > 0 ? $"⚑ {rowOpen}" : rowRemarks.Count > 0 ? "✓" : "+")
+                                    </button>
+                                }
+                            </td>
+                        }
                     </tr>
                 }
             }
@@ -347,7 +478,18 @@ else
 
     // права текущей учётной записи (берутся из БД при загрузке — см. UserService.GetByLoginAsync)
     private bool isAdmin;
+    private bool isReviewer;
     private int? myTeacherId;
+
+    /// <summary>Видит список всех преподавателей (админ или проверяющий).</summary>
+    private bool SeesAll => isAdmin || isReviewer;
+
+    /// <summary>Правит выбранную таблицу: админ — любую, остальные — только своего преподавателя.</summary>
+    private bool CanEdit => selectedTeacherId != 0
+                            && (isAdmin || (myTeacherId is int mine && mine == selectedTeacherId));
+
+    /// <summary>Отмечает замечание «Исправлено»: тот, кто правит таблицу, или проверяющий.</summary>
+    private bool CanResolve => CanEdit || isReviewer;
     private string? myDepartmentName;
 
     private List<string> years = Periods.List();
@@ -363,7 +505,7 @@ else
 
     private async Task ToggleCompleted()
     {
-        if (selectedTeacherId == 0) return;
+        if (selectedTeacherId == 0 || !CanEdit) return;
         isCompleted = !isCompleted;
         await Completion.SetAsync(selectedTeacherId, academicYear, semester, isCompleted, await CurrentUser());
         Audit.Log(await CurrentUser(),
@@ -413,6 +555,80 @@ else
             focusCommentEditor = false;
             await commentEditor.FocusAsync();
         }
+    }
+
+    // ---- замечания проверяющего ----
+    private List<Remark> remarks = new();
+    private bool remarkOpen;
+    private int? remarkWtId;      // null — общие замечания к таблице
+    private string remarkDraft = "";
+
+    private bool ShowRemarkCol => isReviewer || remarks.Count > 0;
+
+    private int OpenRemarkCount => remarks.Count(r => !r.IsResolved);
+
+    private List<Remark> RemarksFor(int? workTypeId) =>
+        remarks.Where(r => r.WorkTypeId == workTypeId).ToList();
+
+    private static string LocalTime(DateTime? utc) =>
+        utc is DateTime d ? DateTime.SpecifyKind(d, DateTimeKind.Utc).ToLocalTime().ToString("dd.MM.yyyy HH:mm") : "";
+
+    private void OpenRemarks(int? workTypeId)
+    {
+        remarkWtId = workTypeId;
+        remarkDraft = "";
+        remarkOpen = true;
+    }
+
+    private void CloseRemarks()
+    {
+        remarkOpen = false;
+        remarkDraft = "";
+    }
+
+    private string RemarkPlace() =>
+        remarkWtId is int id && workTypes.FirstOrDefault(w => w.Id == id) is { } wt
+            ? $"п. {wt.FullNumber}"
+            : "таблица целиком";
+
+    private async Task AddRemark()
+    {
+        if (!isReviewer || selectedTeacherId == 0 || string.IsNullOrWhiteSpace(remarkDraft)) return;
+        try
+        {
+            var r = await RemarkSvc.AddAsync(selectedTeacherId, academicYear, semester, remarkWtId,
+                remarkDraft, await CurrentUser());
+            remarks.Add(r);
+            remarkDraft = "";
+            Audit.Log(await CurrentUser(),
+                $"Замечание ({RemarkPlace()}) — «{TeacherName()}», {academicYear}, {semester} сем.");
+        }
+        catch (Exception ex)
+        {
+            saveMessage = "Ошибка сохранения замечания: " + ex.Message;
+        }
+    }
+
+    private async Task SetResolved(Remark r, bool resolved)
+    {
+        // вернуть в работу может только проверяющий
+        if (resolved ? !CanResolve : !isReviewer) return;
+        var me = await CurrentUser();
+        await RemarkSvc.SetResolvedAsync(r.Id, resolved, me);
+        r.IsResolved = resolved;
+        r.ResolvedAt = resolved ? DateTime.UtcNow : null;
+        r.ResolvedBy = resolved ? me : null;
+        Audit.Log(me,
+            $"{(resolved ? "Замечание исправлено" : "Замечание возвращено в работу")} ({RemarkPlace()}) — «{TeacherName()}», {academicYear}, {semester} сем.");
+    }
+
+    private async Task DeleteRemark(Remark r)
+    {
+        if (!isReviewer) return;
+        await RemarkSvc.DeleteAsync(r.Id);
+        remarks.Remove(r);
+        Audit.Log(await CurrentUser(),
+            $"Удалено замечание ({RemarkPlace()}) — «{TeacherName()}», {academicYear}, {semester} сем.");
     }
 
     // окно-инструкция
@@ -484,6 +700,7 @@ else
     {
         var me = await UserSvc.GetByLoginAsync(await CurrentUser());
         isAdmin = me?.IsAdmin ?? false;
+        isReviewer = me?.IsReviewer ?? false;
         myTeacherId = me?.TeacherId;
         myDepartmentName = me?.Teacher?.Department?.Name;
 
@@ -492,7 +709,7 @@ else
         workTypes = await db.WorkTypes.Include(w => w.Options).ToListAsync();
 
         // обычный пользователь видит только своего преподавателя
-        teachers = isAdmin
+        teachers = SeesAll
             ? await db.Teachers.OrderBy(t => t.FullName).ToListAsync()
             : await db.Teachers.Where(t => t.Id == myTeacherId).ToListAsync();
 
@@ -509,6 +726,7 @@ else
     {
         saveMessage = null;
         rows = new();
+        remarks = new();
         if (selectedTeacherId == 0) { isCompleted = false; return; }
 
         await using var db = await DbFactory.CreateDbContextAsync();
@@ -541,11 +759,12 @@ else
         }
 
         isCompleted = await Completion.IsCompletedAsync(selectedTeacherId, academicYear, semester);
+        remarks = await RemarkSvc.ListAsync(selectedTeacherId, academicYear, semester);
     }
 
     private async Task OnTeacherChanged(ChangeEventArgs e)
     {
-        if (!isAdmin) return; // обычный пользователь преподавателя не меняет
+        if (!SeesAll) return; // обычный пользователь преподавателя не меняет
         selectedTeacherId = int.Parse(e.Value?.ToString() ?? "0");
         await LoadRows();
     }
@@ -607,7 +826,7 @@ else
     // ---- автосохранение одной строки (при уходе с поля) ----
     private async Task AutoSaveRow(Row row)
     {
-        if (selectedTeacherId == 0) return;
+        if (selectedTeacherId == 0 || !CanEdit) return;
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
@@ -723,7 +942,7 @@ else
     private async Task DoClear()
     {
         showClearConfirm = false;
-        if (selectedTeacherId == 0) return;
+        if (selectedTeacherId == 0 || !CanEdit) return;
 
         var scope = pendingClearSection is WorkSection sec
             ? rows.Where(r => r.Wt.Section == sec).ToList()

@@ -30,7 +30,8 @@ else if (tab == Tab.Users)
             <label>&nbsp;</label>
             <span class="hint">
                 Обычная учётная запись правит показатели только своего преподавателя.
-                Администратор видит и правит всех.
+                Администратор видит и правит всех. Проверяющий видит всех и пишет замечания,
+                править может только своего преподавателя (если привязан).
             </span>
         </div>
         <div class="field">
@@ -46,7 +47,7 @@ else if (tab == Tab.Users)
                 <th>Имя</th>
                 <th>Преподаватель</th>
                 <th>Кафедра</th>
-                <th style="width:120px">Роль</th>
+                <th style="width:150px">Роль</th>
                 <th style="width:100px">Статус</th>
                 <th style="width:170px"></th>
             </tr>
@@ -66,13 +67,17 @@ else if (tab == Tab.Users)
                         {
                             <span class="muted">все</span>
                         }
+                        else if (u.IsReviewer)
+                        {
+                            <span class="muted">все (просмотр)</span>
+                        }
                         else
                         {
                             <span class="warn-text">не привязан</span>
                         }
                     </td>
                     <td class="muted">@u.Teacher?.Department?.Name</td>
-                    <td>@(u.IsAdmin ? "Администратор" : "Пользователь")</td>
+                    <td>@u.RoleTitle</td>
                     <td>@(u.IsActive ? "активен" : "отключён")</td>
                     <td class="actions">
                         <button class="btn small" @onclick="() => OpenAccess(u)">Доступ</button>
@@ -151,8 +156,15 @@ else
             <label class="dept-line">
                 <input type="checkbox" @bind="newIsAdmin" /> Администратор (доступ ко всем преподавателям)
             </label>
+            <label class="dept-line">
+                <input type="checkbox" @bind="newIsReviewer" /> Проверяющий (видит всех, пишет замечания)
+            </label>
             @if (!newIsAdmin)
             {
+                @if (newIsReviewer)
+                {
+                    <span class="hint small">Для проверяющего привязка необязательна — оставьте кафедру пустой.</span>
+                }
                 <div class="field">
                     <label>Кафедра</label>
                     <select class="control" value="@newDeptId" @onchange="OnNewDeptChanged">
@@ -174,7 +186,7 @@ else
                     </select>
                     <span class="hint small">В списке — только преподаватели без учётной записи.</span>
                 </div>
-                @if (newTeacherId == 0)
+                @if (newTeacherId == 0 && !(newIsReviewer && newDeptId == 0))
                 {
                     <div class="field">
                         <label>Фамилия И.О. нового преподавателя</label>
@@ -206,8 +218,15 @@ else
             <label class="dept-line">
                 <input type="checkbox" @bind="accessIsAdmin" /> Администратор (доступ ко всем преподавателям)
             </label>
+            <label class="dept-line">
+                <input type="checkbox" @bind="accessIsReviewer" /> Проверяющий (видит всех, пишет замечания)
+            </label>
             @if (!accessIsAdmin)
             {
+                @if (accessIsReviewer)
+                {
+                    <span class="hint small">Для проверяющего привязка необязательна.</span>
+                }
                 <div class="field">
                     <label>Кафедра</label>
                     <select class="control" value="@accessDeptId" @onchange="OnAccessDeptChanged">
@@ -221,7 +240,7 @@ else
                 <div class="field">
                     <label>Преподаватель</label>
                     <select class="control" @bind="accessTeacherId" disabled="@(accessDeptId == 0)">
-                        <option value="0">— выберите —</option>
+                        <option value="0">@(accessIsReviewer ? "— без привязки —" : "— выберите —")</option>
                         @foreach (var t in FreeTeachers(accessDeptId, accessTarget.Id))
                         {
                             <option value="@t.Id">@t.FullName</option>
@@ -382,6 +401,7 @@ else
     private string? newName;
     private string newPassword = "";
     private bool newIsAdmin;
+    private bool newIsReviewer;
     private int newDeptId;
     private int newTeacherId;
     private string newTeacherFullName = "";
@@ -390,7 +410,7 @@ else
     private void OpenCreateUser()
     {
         newLogin = ""; newName = null; newPassword = "";
-        newIsAdmin = false; newDeptId = 0; newTeacherId = 0; newTeacherFullName = "";
+        newIsAdmin = false; newIsReviewer = false; newDeptId = 0; newTeacherId = 0; newTeacherFullName = "";
         userError = null;
         showCreateUser = true;
     }
@@ -409,7 +429,8 @@ else
         string? boundName = null;
         int? createdTeacherId = null; // чтобы откатить, если учётка не создастся
 
-        if (!newIsAdmin)
+        // проверяющему без выбранной кафедры преподаватель не нужен
+        if (!newIsAdmin && !(newIsReviewer && newDeptId == 0))
         {
             if (newTeacherId != 0)
             {
@@ -435,7 +456,7 @@ else
             }
         }
 
-        var (ok, error) = await UserSvc.CreateAsync(newLogin, newName, newPassword, newIsAdmin, teacherId);
+        var (ok, error) = await UserSvc.CreateAsync(newLogin, newName, newPassword, newIsAdmin, newIsReviewer, teacherId);
         if (!ok)
         {
             // учётка не создалась — не оставляем «осиротевшего» преподавателя
@@ -448,7 +469,8 @@ else
         if (createdTeacherId != null)
             Audit.Log(me, $"Добавлен преподаватель «{boundName}» (вместе с учётной записью)");
         Audit.Log(me,
-            $"Создан пользователь «{newLogin.Trim()}»{(newIsAdmin ? " (администратор)" : $" → «{boundName}»")}");
+            $"Создан пользователь «{newLogin.Trim()}»{(newIsAdmin ? " (администратор)" : "")}" +
+            $"{(newIsReviewer ? " (проверяющий)" : "")}{(boundName != null ? $" → «{boundName}»" : "")}");
 
         showCreateUser = false;
         await Reload();
@@ -488,6 +510,7 @@ else
     // ---- доступ (привязка учётной записи) ----
     private AppUser? accessTarget;
     private bool accessIsAdmin;
+    private bool accessIsReviewer;
     private int accessDeptId;
     private int accessTeacherId;
     private string? accessError;
@@ -496,6 +519,7 @@ else
     {
         accessTarget = u;
         accessIsAdmin = u.IsAdmin;
+        accessIsReviewer = u.IsReviewer;
         accessTeacherId = u.TeacherId ?? 0;
         accessDeptId = u.Teacher?.DepartmentId ?? 0;
         accessError = null;
@@ -515,12 +539,13 @@ else
         accessError = null;
         int? teacherId = accessIsAdmin || accessTeacherId == 0 ? null : accessTeacherId;
 
-        var (ok, error) = await UserSvc.UpdateAccessAsync(accessTarget.Id, accessIsAdmin, teacherId);
+        var (ok, error) = await UserSvc.UpdateAccessAsync(accessTarget.Id, accessIsAdmin, accessIsReviewer, teacherId);
         if (!ok) { accessError = error; return; }
 
-        var bound = teacherId is int tid ? teachers.FirstOrDefault(t => t.Id == tid)?.FullName : "все";
+        var bound = teacherId is int tid ? teachers.FirstOrDefault(t => t.Id == tid)?.FullName : "нет";
+        var role = new AppUser { IsAdmin = accessIsAdmin, IsReviewer = accessIsReviewer }.RoleTitle.ToLower();
         Audit.Log(await CurrentUser(),
-            $"Изменён доступ «{accessTarget.Login}»: {(accessIsAdmin ? "администратор" : "пользователь")}, преподаватель — {bound}");
+            $"Изменён доступ «{accessTarget.Login}»: {role}, преподаватель — {bound}");
         accessTarget = null;
         await Reload();
     }
