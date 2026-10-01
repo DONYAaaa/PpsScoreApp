@@ -133,6 +133,8 @@ Domain/            сущности
   WorkType.cs       вид работы (+ ScoreOption; FullNumber = "{section}.{Number}")
                     InputKind/FixedPoints/UnitPoints/Options используются только как
                     подсказка в колонке «Баллы» — ввод везде ручной числовой
+                    Level (0/1/2 — вложенность подпункта), IsHeader (строка-заголовок
+                    группы, ввод недоступен), ShowNumber (печатать ли номер в колонке «№»)
   WorkEntry.cs      внесённая работа (TeacherId, WorkTypeId, AcademicYear, Semester, Points,
                     ScoreOptionId?, Quantity?, Comment, легаси StoredFileName/OriginalFileName,
                     навигация WorkFiles)
@@ -146,9 +148,13 @@ Domain/            сущности
 
 Data/
   AppDbContext.cs   DbSet-ы + связи + индексы (см. ниже)
-  SeedData.Departments.cs   36 кафедр
-  SeedData.WorkTypes.cs     57 видов работ по 5 разделам
-  DbInitializer.cs  EnsureCreated + сид справочников + сид админа (admin/88863795)
+  SeedData.Departments.cs   30 кафедр (лист «Кафедры» формы ИП)
+  SeedData.WorkTypes.cs     67 строк формы по 5 разделам (пункты + заголовки групп + подпункты)
+  DbInitializer.cs  EnsureCreated + сид справочников + сид админа (admin/88863795);
+                    SyncWorkTypesAsync — сверяет справочник видов работ с SeedData по
+                    паре (раздел, номер): обновляет существующие, добавляет новые, НЕ удаляет
+                    SyncDepartmentsAsync — сверяет кафедры по названию: обновляет аббревиатуру
+                    и зав. кафедрой, добавляет новые, удаляет только пустые (без преподавателей)
 
 Services/
   ScoringRules.cs       лимиты: SectionCap=50, TotalCap=100, TotalFloor=0; CapSection/CapTotal
@@ -167,7 +173,7 @@ Services/
   CompletionService.cs  IsCompletedAsync / SetAsync / CompletedIdsAsync / StartedIdsAsync
   RemarkService.cs      ListAsync / AddAsync / SetResolvedAsync / DeleteAsync / OpenCountsAsync
   WorkInstructions.cs   статический словарь FullNumber → текст инструкции (из PDF), для «?»
-                        57 записей — по числу видов работ
+                        подпункт без своего текста берёт текст родителя (2.2.3 → 2.2)
   Periods.cs            учебные годы, семестры
 
 Models/ReportModels.cs  ReportRequest, TeacherReport, ReportResult и т.п.
@@ -176,6 +182,9 @@ Components/
   App.razor, Routes.razor (AuthorizeRouteView + RedirectToLogin), _Imports.razor
   Account/RedirectToLogin.razor
   Layout/MainLayout.razor (шапка, навигация под авторизацию, имя пользователя, «Выйти»)
+                          кнопка «Назад» — обычный HTML `onclick="history.back()"`, а не
+                          `@onclick`: шапка общая и для статических страниц (Login),
+                          где интерактивность не включена
   Pages/
     Home.razor    "/"        [Authorize]  — ВВОД показателей (главный экран)
     Report.razor  "/report"  [Authorize]  — отчёты, выбор преподавателей, выгрузка ZIP
@@ -261,6 +270,32 @@ CREATE UNIQUE INDEX [IX_Users_TeacherId] ON [Users]([TeacherId])
 ```
 После этого всем не-админским учёткам нужно назначить преподавателя на `/users` —
 без привязки они не смогут вносить показатели.
+
+### Подпункты формы ИП (SQL для существующей БД)
+Бланк «с изм. от 26.08.2026» разбивает часть пунктов на подпункты (2.2, 2.3, 2.9, 4.4).
+В `WorkTypes` для этого добавлены три колонки:
+```sql
+ALTER TABLE [WorkTypes] ADD [Level] int NOT NULL CONSTRAINT [DF_WorkTypes_Level] DEFAULT 0;
+ALTER TABLE [WorkTypes] ADD [IsHeader] bit NOT NULL CONSTRAINT [DF_WorkTypes_IsHeader] DEFAULT 0;
+ALTER TABLE [WorkTypes] ADD [ShowNumber] bit NOT NULL CONSTRAINT [DF_WorkTypes_ShowNumber] DEFAULT 1;
+```
+Сами строки справочника править вручную не нужно: `DbInitializer.SyncWorkTypesAsync`
+при старте обновляет названия/баллы и добавляет новые подпункты.
+
+Пункты 2.2, 2.3 и 2.9 стали строками-заголовками (`IsHeader = 1`) — ввод по ним закрыт.
+Если по ним уже были внесены баллы, эти записи надо перенести в подходящий подпункт,
+иначе они перестанут отображаться. Проверка:
+```sql
+SELECT e.Id, e.TeacherId, e.AcademicYear, e.Semester, e.Points, w.Number, w.Title
+FROM [WorkEntries] e JOIN [WorkTypes] w ON w.Id = e.WorkTypeId
+WHERE w.[IsHeader] = 1;
+```
+Перенос (пример: баллы п. 2.2 → подпункт «а) в журнале», номер `2.3`):
+```sql
+UPDATE e SET e.WorkTypeId = (SELECT Id FROM [WorkTypes] WHERE Section = 2 AND Number = '2.3')
+FROM [WorkEntries] e JOIN [WorkTypes] w ON w.Id = e.WorkTypeId
+WHERE w.Section = 2 AND w.Number = '2';
+```
 
 Легаси одиночные файлы (`WorkEntries.StoredFileName`) при необходимости переносятся:
 ```sql
@@ -470,3 +505,10 @@ CREATE INDEX [IX_Remarks_WorkTypeId] ON [Remarks]([WorkTypeId]);
 - Уникальный индекс `WorkEntry(TeacherId, AcademicYear, Semester, WorkTypeId)` против
   дублей из-за гонки автосохранения (SQL со слиянием дублей — раздел 6).
 - Роль проверяющего (`AppUser.IsReviewer`) и замечания к строкам (`Remarks`), см. разделы 6, 8, 11.
+- Справочник кафедр приведён к листу «Кафедры» той же формы: 36 → 30 позиций, полные
+  названия («Мосты» → «Мосты, тоннели и метрополитены», «УЭР» → «…, станции и узлы»),
+  обновлены аббревиатуры и заведующие. Разделённые кафедры слиты, отсутствующих в форме
+  («Английский язык», «Русский язык…», «Общая информатика») больше нет.
+- Форма актуализирована под бланк «с изм. от 26.08.2026»: официальные формулировки,
+  подпункты вынесены отдельными строками (`Level`/`IsHeader`/`ShowNumber`), в Excel
+  ячейка «№» объединяется по группе подпунктов, справочник синхронизируется при старте.

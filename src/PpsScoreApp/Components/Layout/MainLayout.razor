@@ -2,6 +2,11 @@
 
 <div class="app-shell">
     <header class="app-header">
+        @* Обычный HTML-onclick, а не @@onclick: шапка общая для всех страниц, в том числе
+           статических (Login), где интерактивность не включена — history.back() работает везде. *@
+        <button type="button" class="back-btn" onclick="history.back()" title="Вернуться назад">
+            <span class="back-arrow" aria-hidden="true">←</span> Назад
+        </button>
         <div class="brand">СГУПС · Учёт баллов ППС</div>
         <AuthorizeView>
             <Authorized>

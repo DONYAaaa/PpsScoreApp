@@ -802,3 +802,41 @@ textarea.control { min-width: 320px; resize: vertical; }
 .remark-editor { width: 100%; resize: vertical; }
 
 .remark-flag { color: #dc2626; font-weight: 700; margin-left: 4px; }
+
+/* ---- подпункты формы (заголовок группы + вложенные строки) ---- */
+/* Заголовок группы: сам баллов не имеет, только называет группу подпунктов. */
+.grid.sheet tbody tr.group-row td {
+    background: #f6f8fb;
+    font-weight: 600;
+    color: #334155;
+}
+/* Отступы по уровню вложенности — как объединённые подстроки в бланке. */
+.wt-title.lvl-1 { padding-left: 18px; }
+.wt-title.lvl-2 { padding-left: 38px; }
+/* Многострочные названия (напр. п. 5.6) сохраняют переносы из формы. */
+.wt-title span { white-space: pre-line; }
+
+/* ---- кнопка «Назад» в шапке (доступна на любом роуте) ---- */
+.app-header .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    border: none;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--primary-dark);
+    font: inherit;
+    font-weight: 700;
+    letter-spacing: .01em;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+    transition: background .12s, transform .12s, box-shadow .12s;
+}
+.app-header .back-btn .back-arrow { font-size: 17px; line-height: 1; }
+.app-header .back-btn:hover {
+    background: #eef2fb;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
+}
+.app-header .back-btn:active { transform: translateY(1px); box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+.app-header .back-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
